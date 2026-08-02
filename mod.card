@@ -1,0 +1,28 @@
+return {
+  summary = "Import a legally obtained Pokemon Crystal ROM and expand Red, Blue, or Yellow to 251 Pokemon.",
+  tags = { "overhaul", "gen-ii", "rom-import" },
+  differences = {
+    changed = {
+      "the Pokedex, moves, learnsets, evolutions, trainers and wild ecology expand to 251",
+      "the type chart uses Generation II Steel, Dark and corrected matchups",
+      "Kanto Pokemon retain their Generation I Special; Johto uses the stronger Crystal Special stat",
+      "trainer parties are curated by class, location and badge progression",
+    },
+    added = {
+      "locally extracted Crystal front, back, shiny and Unown-form sprites",
+      "HM06 Whirlpool, HM07 Waterfall and deterministic substitutes for trade/time evolutions",
+      "gated roaming beasts and visible Lugia and Ho-Oh sanctuaries using their dedicated Crystal map sprites",
+      "seven additional Pokemon Crystal-inspired NPC trades across Kanto",
+      "a grass-only Tidal Isle habitat with a swimmer route and badge-revealed cave door",
+    },
+    known = {
+      "Crystal battle animation scripts and cries are not imported in this preview",
+      "some Generation II move effects use a conservative fallback where Gen I has no matching mechanic",
+    },
+  },
+  credits = {
+    { who="pret/pokecrystal", for_="canonical Pokemon Crystal data layout and behavior reference" },
+    { who="Pokemon Gen 1 Recompilation Project", for_="mod API, runtime and original game reconstruction" },
+  },
+  compat = { engine=">=0.0.0-0 <2.0.0", modApi=2 },
+}

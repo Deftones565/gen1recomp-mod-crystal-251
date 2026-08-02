@@ -1,0 +1,83 @@
+local Catalog = {}
+
+Catalog.typeByByte = {
+  [0] = "NORMAL", [1] = "FIGHTING", [2] = "FLYING", [3] = "POISON",
+  [4] = "GROUND", [5] = "ROCK", [7] = "BUG", [8] = "GHOST", [9] = "STEEL",
+  [20] = "FIRE", [21] = "WATER", [22] = "GRASS", [23] = "ELECTRIC",
+  [19] = "CURSE_TYPE", [24] = "PSYCHIC_TYPE", [25] = "ICE", [26] = "DRAGON", [27] = "DARK",
+}
+
+Catalog.growthByByte = {
+  [0] = "MEDIUM_FAST", [1] = "SLIGHTLY_FAST", [2] = "SLIGHTLY_SLOW",
+  [3] = "MEDIUM_SLOW", [4] = "FAST", [5] = "SLOW",
+}
+
+Catalog.idOverrides = {
+  [29] = "NIDORAN_F", [32] = "NIDORAN_M", [83] = "FARFETCHD",
+  [122] = "MR_MIME", [250] = "HO_OH",
+}
+
+Catalog.displayOverrides = {
+  [29] = "NIDORAN F", [32] = "NIDORAN M", [83] = "FARFETCH'D",
+  [122] = "MR.MIME", [250] = "HO-OH",
+}
+
+Catalog.itemByByte = {
+  -- pret/pokecrystal constants/item_constants.asm. Unknown held trade items
+  -- may fall back to Linking Cord, but ordinary stones must stay explicit.
+  [0x08] = "MOON_STONE", [0x16] = "FIRE_STONE",
+  [0x17] = "THUNDER_STONE", [0x18] = "WATER_STONE",
+  [0x22] = "LEAF_STONE", [0x52] = "KINGS_ROCK", [0x8f] = "METAL_COAT",
+  [0x97] = "DRAGON_SCALE", [0xa9] = "SUN_STONE", [0xac] = "UP_GRADE",
+}
+
+Catalog.tmItems = {
+  "DYNAMICPUNCH", "HEADBUTT", "CURSE", "ROLLOUT", "ROAR", "TOXIC",
+  "ZAP_CANNON", "ROCK_SMASH", "PSYCH_UP", "HIDDEN_POWER", "SUNNY_DAY",
+  "SWEET_SCENT", "SNORE", "BLIZZARD", "HYPER_BEAM", "ICY_WIND",
+  "PROTECT", "RAIN_DANCE", "GIGA_DRAIN", "ENDURE", "FRUSTRATION",
+  "SOLARBEAM", "IRON_TAIL", "DRAGONBREATH", "THUNDER", "EARTHQUAKE",
+  "RETURN", "DIG", "PSYCHIC_M", "SHADOW_BALL", "MUD_SLAP", "DOUBLE_TEAM",
+  "ICE_PUNCH", "SWAGGER", "SLEEP_TALK", "SLUDGE_BOMB", "SANDSTORM",
+  "FIRE_BLAST", "SWIFT", "DEFENSE_CURL", "THUNDERPUNCH", "DREAM_EATER",
+  "DETECT", "REST", "ATTRACT", "THIEF", "STEEL_WING", "FIRE_PUNCH",
+  "FURY_CUTTER", "NIGHTMARE", "CUT", "FLY", "SURF", "STRENGTH", "FLASH",
+  "WHIRLPOOL", "WATERFALL", "FLAMETHROWER", "THUNDERBOLT", "ICE_BEAM",
+}
+
+-- Existing Gen I effect ids are reused where the semantics line up. New
+-- Crystal effects receive stable CRYSTAL_EFFECT_nn ids and are installed by
+-- effects.lua, so no move ever has a dangling effect reference.
+Catalog.effectAliases = {
+  [0]="NO_ADDITIONAL_EFFECT", [1]="SLEEP_EFFECT", [2]="POISON_SIDE_EFFECT1",
+  [3]="DRAIN_HP_EFFECT", [4]="BURN_SIDE_EFFECT1", [5]="FREEZE_SIDE_EFFECT1",
+  [6]="PARALYZE_SIDE_EFFECT1", [7]="EXPLODE_EFFECT", [8]="DREAM_EATER_EFFECT",
+  [9]="MIRROR_MOVE_EFFECT", [17]="SWIFT_EFFECT", [25]="HAZE_EFFECT",
+  [26]="BIDE_EFFECT", [27]="THRASH_PETAL_DANCE_EFFECT", [29]="TWO_TO_FIVE_ATTACKS_EFFECT",
+  [28]="SWITCH_AND_TELEPORT_EFFECT",
+  [30]="CONVERSION_EFFECT", [31]="FLINCH_SIDE_EFFECT1", [32]="HEAL_EFFECT",
+  [33]="POISON_EFFECT", [34]="PAY_DAY_EFFECT", [35]="LIGHT_SCREEN_EFFECT",
+  [38]="OHKO_EFFECT", [40]="SUPER_FANG_EFFECT", [41]="SPECIAL_DAMAGE_EFFECT",
+  [39]="CHARGE_EFFECT",
+  [42]="TRAPPING_EFFECT", [44]="ATTACK_TWICE_EFFECT", [45]="JUMP_KICK_EFFECT",
+  [46]="MIST_EFFECT", [47]="FOCUS_ENERGY_EFFECT", [48]="RECOIL_EFFECT",
+  [49]="CONFUSION_EFFECT", [57]="TRANSFORM_EFFECT", [65]="REFLECT_EFFECT",
+  [66]="POISON_EFFECT", [67]="PARALYZE_EFFECT", [76]="CONFUSION_SIDE_EFFECT",
+  [68]="ATTACK_DOWN_SIDE_EFFECT", [69]="DEFENSE_DOWN_SIDE_EFFECT",
+  [70]="SPEED_DOWN_SIDE_EFFECT", [71]="SPECIAL_DOWN_SIDE_EFFECT",
+  [72]="SPECIAL_DOWN_SIDE_EFFECT",
+  [77]="TWINEEDLE_EFFECT", [79]="SUBSTITUTE_EFFECT", [80]="HYPER_BEAM_EFFECT",
+  [81]="RAGE_EFFECT", [82]="MIMIC_EFFECT", [83]="METRONOME_EFFECT",
+  [84]="LEECH_SEED_EFFECT", [85]="SPLASH_EFFECT", [86]="DISABLE_EFFECT",
+  [87]="SPECIAL_DAMAGE_EFFECT", [88]="SPECIAL_DAMAGE_EFFECT",
+  [89]="SPECIAL_DAMAGE_EFFECT", [103]="NO_ADDITIONAL_EFFECT",
+  [75]="CHARGE_EFFECT", [108]="BURN_SIDE_EFFECT2", [125]="BURN_SIDE_EFFECT2",
+  [145]="CHARGE_EFFECT", [151]="CHARGE_EFFECT", [153]="SWITCH_AND_TELEPORT_EFFECT",
+  [155]="FLY_EFFECT",
+}
+
+function Catalog.effectId(value)
+  return Catalog.effectAliases[value] or ("CRYSTAL_EFFECT_%02X"):format(value)
+end
+
+return Catalog

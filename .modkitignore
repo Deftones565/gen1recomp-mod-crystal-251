@@ -1,0 +1,10 @@
+# modkit matches exact relative paths rather than directory globs.
+tests/extractor_test.lua
+tests/integration_test.lua
+tests/import_screen_test.lua
+tests/lz_test.lua
+tests/visual_sprite_test.lua
+tests/battle_visual_driver.lua
+tests/reimport_driver.lua
+tests/dex_visual_driver.lua
+tests/sanctuary_visual_driver.lua
