@@ -1,13 +1,63 @@
 local CACHE = "crystal_251/content.json"
 
+-- These Generation II moves share an effect byte with a Generation I move,
+-- but Crystal stores a per-move effect chance.  Old content caches already
+-- contain the Gen I alias, so rewrite only the new move ids at registration
+-- time instead of requiring the player to import the ROM again.
+local GEN2_EFFECT_OVERRIDES = {
+  FAINT_ATTACK = "CRYSTAL_EFFECT_11",
+  VITAL_THROW = "CRYSTAL_EFFECT_11",
+  POWDER_SNOW = "CRYSTAL_EFFECT_05",
+  SWEET_KISS = "CRYSTAL_EFFECT_31",
+  SLUDGE_BOMB = "CRYSTAL_EFFECT_02",
+  ZAP_CANNON = "CRYSTAL_EFFECT_06",
+  ICY_WIND = "CRYSTAL_EFFECT_46",
+  SPARK = "CRYSTAL_EFFECT_06",
+  DYNAMICPUNCH = "CRYSTAL_EFFECT_4C",
+  DRAGONBREATH = "CRYSTAL_EFFECT_06",
+  IRON_TAIL = "CRYSTAL_EFFECT_45",
+  CRUNCH = "CRYSTAL_EFFECT_48",
+  SHADOW_BALL = "CRYSTAL_EFFECT_48",
+  ROCK_SMASH = "CRYSTAL_EFFECT_45",
+}
+
+-- Generation I move ids whose native handlers do not express Crystal's
+-- command family or secondary state. These records are patched only in the
+-- merged CRYSTAL_251 data view; the engine source and base data stay untouched.
+local KANTO_EFFECT_OVERRIDES = {
+  GROWTH = "CRYSTAL_EFFECT_0D",
+  HAZE = "CRYSTAL_EFFECT_19",
+  PSYCHIC_M = "CRYSTAL_EFFECT_48",
+  LIGHT_SCREEN = "CRYSTAL_EFFECT_23",
+  TRANSFORM = "CRYSTAL_EFFECT_39",
+  REFLECT = "CRYSTAL_EFFECT_41",
+  AMNESIA = "CRYSTAL_EFFECT_36",
+  TRI_ATTACK = "CRYSTAL_EFFECT_24",
+  MINIMIZE = "CRYSTAL_EFFECT_10",
+  GUST = "CRYSTAL_EFFECT_95",
+  STOMP = "CRYSTAL_EFFECT_96",
+  THUNDER = "CRYSTAL_EFFECT_98",
+  EARTHQUAKE = "CRYSTAL_EFFECT_93",
+  DEFENSE_CURL = "CRYSTAL_EFFECT_9C",
+}
+
 local function loadCache()
-  if not (love and love.filesystem and love.filesystem.getInfo(CACHE, "file")) then return nil end
+  if not (love and love.filesystem and love.filesystem.getInfo(CACHE, "file")) then
+    return nil, false
+  end
   local raw = love.filesystem.read(CACHE)
-  if not raw then return nil end
+  if not raw then return nil, true end
   local content = require("mods.CRYSTAL_251.lib.json").decode(raw)
-  local supported = { [10]=true, [12]=true, [13]=true }
-  if type(content) ~= "table" or not supported[content.schema] then return nil end
-  return content
+  local supported = { [22]=true }
+  if type(content) ~= "table" or not supported[content.schema] then
+    return nil, true
+  end
+  local Gender = require("mods.CRYSTAL_251.battle.crystal_gender")
+  local Daycare = require("mods.CRYSTAL_251.daycare")
+  if not Gender.cacheHasRatios(content) or not Daycare.cacheHasData(content) then
+    return nil, true
+  end
+  return content, false
 end
 
 local function isShiny(mon)
@@ -52,14 +102,61 @@ local function installItems(mod)
     end,
   })
   local rows = {
-    KINGS_ROCK={"KING'S ROCK",10000}, METAL_COAT={"METAL COAT",10000},
-    DRAGON_SCALE={"DRAGON SCALE",10000}, SUN_STONE={"SUN STONE",10000},
-    UP_GRADE={"UP-GRADE",10000}, LINKING_CORD={"LINKING CORD",15000},
+    HEAVY_BALL={"HEAVY BALL",0}, LEVEL_BALL={"LEVEL BALL",0},
+    LURE_BALL={"LURE BALL",0}, FAST_BALL={"FAST BALL",0},
+    FRIEND_BALL={"FRIEND BALL",0}, MOON_BALL={"MOON BALL",0},
+    LOVE_BALL={"LOVE BALL",0}, PARK_BALL={"PARK BALL",0},
+    EXP_SHARE={"EXP.SHARE",3000}, LUCKY_EGG={"LUCKY EGG",200},
+    BRIGHTPOWDER={"BRIGHTPOWDER",10}, LUCKY_PUNCH={"LUCKY PUNCH",10},
+    METAL_POWDER={"METAL POWDER",10}, QUICK_CLAW={"QUICK CLAW",100},
+    PSNCUREBERRY={"PSNCUREBERRY",10}, SOFT_SAND={"SOFT SAND",100},
+    SHARP_BEAK={"SHARP BEAK",100}, PRZCUREBERRY={"PRZCUREBERRY",10},
+    BURNT_BERRY={"BURNT BERRY",10}, ICE_BERRY={"ICE BERRY",10},
+    POISON_BARB={"POISON BARB",100}, KINGS_ROCK={"KING'S ROCK",100},
+    BITTER_BERRY={"BITTER BERRY",10}, MINT_BERRY={"MINT BERRY",10},
+    SILVERPOWDER={"SILVERPOWDER",100}, AMULET_COIN={"AMULET COIN",100},
+    CLEANSE_TAG={"CLEANSE TAG",200}, MYSTIC_WATER={"MYSTIC WATER",100},
+    TWISTEDSPOON={"TWISTEDSPOON",100}, BLACKBELT_I={"BLACKBELT",100},
+    BLACKGLASSES={"BLACKGLASSES",100}, PINK_BOW={"PINK BOW",100},
+    STICK={"STICK",200}, SMOKE_BALL={"SMOKE BALL",200},
+    NEVERMELTICE={"NEVERMELTICE",100}, MAGNET={"MAGNET",100},
+    MIRACLEBERRY={"MIRACLEBERRY",10}, SPELL_TAG={"SPELL TAG",100},
+    MIRACLE_SEED={"MIRACLE SEED",100}, THICK_CLUB={"THICK CLUB",500},
+    FOCUS_BAND={"FOCUS BAND",200}, HARD_STONE={"HARD STONE",100},
+    CHARCOAL={"CHARCOAL",9800}, BERRY_JUICE={"BERRY JUICE",100},
+    SCOPE_LENS={"SCOPE LENS",200}, METAL_COAT={"METAL COAT",100},
+    DRAGON_FANG={"DRAGON FANG",100}, LEFTOVERS={"LEFTOVERS",200},
+    MYSTERYBERRY={"MYSTERYBERRY",10}, DRAGON_SCALE={"DRAGON SCALE",2100},
+    BERSERK_GENE={"BERSERK GENE",200}, LIGHT_BALL={"LIGHT BALL",100},
+    POLKADOT_BOW={"POLKADOT BOW",100}, BERRY={"BERRY",10},
+    GOLD_BERRY={"GOLD BERRY",10}, SUN_STONE={"SUN STONE",2100},
+    UP_GRADE={"UP-GRADE",2100}, LINKING_CORD={"LINKING CORD",15000},
+    FLOWER_MAIL={"FLOWER MAIL",50,true}, SURF_MAIL={"SURF MAIL",50,true},
+    LITEBLUEMAIL={"LITEBLUEMAIL",50,true}, PORTRAITMAIL={"PORTRAITMAIL",50,true},
+    LOVELY_MAIL={"LOVELY MAIL",50,true}, EON_MAIL={"EON MAIL",50,true},
+    MORPH_MAIL={"MORPH MAIL",50,true}, BLUESKY_MAIL={"BLUESKY MAIL",50,true},
+    MUSIC_MAIL={"MUSIC MAIL",50,true}, MIRAGE_MAIL={"MIRAGE MAIL",50,true},
+  }
+  local evolution = {
+    KINGS_ROCK=true, METAL_COAT=true, DRAGON_SCALE=true,
+    SUN_STONE=true, UP_GRADE=true, LINKING_CORD=true,
   }
   for id, row in pairs(rows) do
     if not mod.content.items:get(id) then
-      mod.content.items:register(id, { id=id, name=row[1], price=row[2],
-        tossable=true, needsTarget=true, effect="CRYSTAL_EVOLUTION_ITEM" })
+      local def = { id=id, name=row[1], price=row[2], tossable=true }
+      if row[3] then def.isMail = true end
+      if evolution[id] then
+        def.needsTarget = true
+        def.effect = "CRYSTAL_EVOLUTION_ITEM"
+      end
+      mod.content.items:register(id, def)
+    end
+  end
+  local balls = { "HEAVY_BALL", "LEVEL_BALL", "LURE_BALL", "FAST_BALL",
+    "FRIEND_BALL", "MOON_BALL", "LOVE_BALL", "PARK_BALL" }
+  for _, id in ipairs(balls) do
+    if not mod.content.balls:get(id) then
+      mod.content.balls:register(id, { randMax=255, tossAnim="ULTRATOSS_ANIM" })
     end
   end
   for number, move in pairs({ [6]="WHIRLPOOL", [7]="WATERFALL" }) do
@@ -69,9 +166,6 @@ local function installItems(mod)
         tossable=false, needsTarget=true, machine={ kind="HM", move=move, number=number } })
     end
   end
-  -- The fourth floor is already Kanto's evolution-stone counter. Keeping
-  -- the additions there makes every converted evolution obtainable without
-  -- inventing a second shop UI or touching a map script.
   mod.content.text_pointers:patch("CeladonMart4F", {
     TEXT_CELADONMART4F_CLERK={
       label="CeladonMart4FClerkText",
@@ -92,6 +186,9 @@ local function installItemBridge()
   ItemEffects.isStone = function(id) return extras[id] or oldStone(id) end
   ItemEffects.needsTarget = function(id, def) return extras[id] or oldNeeds(id, def) end
   ItemEffects.use = function(data, save, itemId, target, battle, moveIndex, ow)
+    if target and target.isEgg then
+      return "failed", { "It won't have\nany effect." }
+    end
     if not extras[itemId] then return oldUse(data, save, itemId, target, battle, moveIndex, ow) end
     if battle or not target then return "failed", { "It won't have\nany effect." } end
     for _, evo in ipairs((data.pokemon[target.species] or {}).evolutions or {}) do
@@ -124,6 +221,7 @@ end
 
 local function registerContent(mod, cache)
   require("mods.CRYSTAL_251.effects").install(mod)
+  require("mods.CRYSTAL_251.battle.crystal_presentation").register(mod, cache)
   installTypes(mod)
   installItems(mod)
   mod.content.constants:patch("dexSize", 251)
@@ -157,24 +255,61 @@ local function registerContent(mod, cache)
   local existingMoveByIndex = {}
   for id, def in mod.content.moves:each() do if def.index then existingMoveByIndex[def.index]=id end end
   local moveIdByIndex = {}
+  local crystalMoves = {}
   for _, cached in ipairs(cache.moves) do
-    local row = copy(cached)
-    local id = existingMoveByIndex[row.index] or row.id
-    moveIdByIndex[row.index] = id
-    row.id = id
-    row.effectChance = nil
-    row.crystalAnim = nil
-    if mod.content.moves:get(id) then mod.content.moves:override(id, row)
-    else mod.content.moves:register(id, row) end
+    local existingId = existingMoveByIndex[cached.index]
+    local crystalId = existingId or cached.id
+    local crystalRow = copy(cached)
+    crystalRow.id = crystalId
+    crystalRow.effect = GEN2_EFFECT_OVERRIDES[crystalId] or crystalRow.effect
+    crystalMoves[crystalId] = crystalRow
+    if cached.index < 166 then
+      -- Keep the registered move definition native by default. The complete
+      -- Crystal row remains mod-owned for damage routing; a small set of
+      -- split-stat/screen moves is patched immediately after this loop.
+      moveIdByIndex[cached.index] = assert(existingId,
+        ("missing native Generation I move at index %d"):format(cached.index))
+    else
+      local row = copy(cached)
+      local id = existingId or row.id
+      moveIdByIndex[row.index] = id
+      row.id = id
+      row.effect = GEN2_EFFECT_OVERRIDES[id] or row.effect
+      if mod.content.moves:get(id) then mod.content.moves:override(id, row)
+      else mod.content.moves:register(id, row) end
+    end
   end
 
+  for id, effect in pairs(KANTO_EFFECT_OVERRIDES) do
+    local crystal = assert(crystalMoves[id], "missing Crystal move record for " .. id)
+    crystal.effect = effect
+    mod.content.moves:patch(id, {
+      effect = effect,
+      effectChance = crystal.effectChance,
+    })
+  end
+
+  local CrystalProgression = require("mods.CRYSTAL_251.battle.crystal_progression")
+  local CrystalGender = require("mods.CRYSTAL_251.battle.crystal_gender")
+  local CrystalSummary = require("mods.CRYSTAL_251.battle.crystal_summary")
   local existingSpeciesByDex = {}
+  local crystalHeldItems = {}
+  local crystalBaseStats = {}
   for id, def in mod.content.pokemon:each() do if def.dex then existingSpeciesByDex[def.dex]=id end end
   for _, source in ipairs(cache.species) do
     local row = copy(source)
     local id, old = existingSpeciesByDex[row.dex] or row.id, existingSpeciesByDex[row.dex]
       and mod.content.pokemon:get(existingSpeciesByDex[row.dex]) or nil
     row.id = id
+    crystalHeldItems[id] = row.crystalHeldItems
+    crystalBaseStats[id] = {
+      hp = row.baseStats.hp, attack = row.baseStats.attack,
+      defense = row.baseStats.defense, speed = row.baseStats.speed,
+      specialAttack = row.crystalSpecialAttack or row.baseStats.special,
+      specialDefense = row.crystalSpecialDefense or row.baseStats.special,
+    }
+    row.crystalHeldItems = nil
+    row.frontAnimation = nil
     if old then
       -- Crystal's Time Capsule deliberately restores the original Kanto base
       -- Special. Johto has no official Gen I value and keeps the imported
@@ -210,6 +345,8 @@ local function registerContent(mod, cache)
         text = textId,
       }
     end
+    CrystalGender.setRatio(id, source.crystalGenderRatio)
+    row.crystalGenderRatio = source.crystalGenderRatio
     row.pokedex = nil
     row.shinySpriteFront, row.shinySpriteBack = nil, nil
     row.spriteDex, row.shinySpriteDex = nil, nil
@@ -225,6 +362,72 @@ local function registerContent(mod, cache)
     mod.content.palettes:register("CRYSTAL_251_" .. id, paletteColors)
     mod.content.icons:register(id, source.icon)
   end
+  CrystalSummary.configure(crystalBaseStats)
+  local SpecialDamage = require("mods.CRYSTAL_251.battle.special_damage")
+  local MultiTurn = require("mods.CRYSTAL_251.battle.multi_turn")
+  local CrystalStatus = require("mods.CRYSTAL_251.battle.crystal_status")
+  local CrystalSwitching = require("mods.CRYSTAL_251.battle.crystal_switching")
+  local CrystalItems = require("mods.CRYSTAL_251.battle.crystal_items")
+  local CrystalScheduler = require("mods.CRYSTAL_251.battle.crystal_scheduler")
+  local CrystalActions = require("mods.CRYSTAL_251.battle.crystal_actions")
+  local CrystalAI = require("mods.CRYSTAL_251.battle.crystal_ai")
+  SpecialDamage.patchMoves(mod, crystalMoves)
+  MultiTurn.patchMoves(mod, crystalMoves)
+  CrystalStatus.patchMoves(mod, crystalMoves)
+  CrystalSwitching.patchMoves(mod, crystalMoves)
+
+  local MoveScripts = require("mods.CRYSTAL_251.battle.move_scripts")
+  local CommandInterpreter = require("mods.CRYSTAL_251.battle.command_interpreter")
+  local crystalMoveScripts = MoveScripts.build(crystalMoves)
+  local crystalInterpreter = CommandInterpreter.new()
+  local scriptsOk, scriptsErr = MoveScripts.validate(
+    crystalMoveScripts, crystalInterpreter, 251)
+  assert(scriptsOk, scriptsErr)
+
+  mod.exports.crystalHeldItems = crystalHeldItems
+  mod.exports.crystalBaseStats = crystalBaseStats
+  mod.exports.crystalMoves = crystalMoves
+  mod.exports.crystalMoveScripts = crystalMoveScripts
+  mod.exports.crystalCommandInterpreter = crystalInterpreter
+  mod.exports.crystalSpecialDamage = SpecialDamage
+  mod.exports.crystalMultiTurn = MultiTurn
+  mod.exports.crystalStatus = CrystalStatus
+  mod.exports.crystalSwitching = CrystalSwitching
+  mod.exports.crystalItems = CrystalItems
+  mod.exports.crystalScheduler = CrystalScheduler
+  mod.exports.crystalActions = CrystalActions
+  mod.exports.crystalAI = CrystalAI
+  SpecialDamage.configure({
+    moves = crystalMoves,
+    scripts = crystalMoveScripts,
+    interpreter = crystalInterpreter,
+  })
+  MultiTurn.configure({
+    moves = crystalMoves,
+    scripts = crystalMoveScripts,
+    interpreter = crystalInterpreter,
+  })
+  require("mods.CRYSTAL_251.battle.crystal_damage").install(mod, {
+    baseStats = crystalBaseStats,
+    moves = crystalMoves,
+    scripts = crystalMoveScripts,
+    interpreter = crystalInterpreter,
+  })
+  local bridge = require("mods.CRYSTAL_251.runtime_bridge")
+  bridge.setHeldItems(crystalHeldItems)
+  bridge.install()
+  local dramatic = mod.find("DRAMATIC_SHAPE") or mod.find("dramatic_shape")
+  CrystalGender.installDramatic(dramatic and dramatic.exports)
+  local presentation = require("mods.CRYSTAL_251.battle.crystal_presentation")
+  presentation.configure(cache)
+  presentation.installRuntime()
+  mod.exports.crystalRuntime = bridge
+  mod.exports.crystalPresentation = presentation
+  mod.exports.crystalProgression = CrystalProgression
+  mod.exports.crystalGender = CrystalGender
+  mod.exports.crystalSummary = CrystalSummary
+  mod.exports.rollWildHeldItem = bridge.rollWildHeldItem
+
   local overworld = assert(cache.overworldSprites,
     "Crystal import is missing legendary overworld sprites")
   mod.content.sprites:register("CRYSTAL_251_SPRITE_LUGIA", {
@@ -250,7 +453,7 @@ local function registerContent(mod, cache)
 end
 
 return function(mod)
-  local cache = loadCache()
+  local cache, staleCache = loadCache()
   local game
   mod.options:define({
     { key="crystal_shinies", label="CRYSTAL SHINIES", type="toggle", default=true },
@@ -265,17 +468,24 @@ return function(mod)
   mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
     items = next(game, items)
     mod.ui.insertBefore(items, "EXIT GAME", {
-      label=cache and "REIMPORT CRYSTAL" or "IMPORT CRYSTAL",
+      label=(cache or staleCache) and "REIMPORT CRYSTAL" or "IMPORT CRYSTAL",
       onSelect=function() mod.ui.push(game, "Crystal251Import") end,
     })
     return items
   end, 100)
   if not cache then
-    mod.log:warn("Crystal data is not imported; use IMPORT CRYSTAL on the title menu")
+    if staleCache then
+      mod.log:warn("Crystal cache is outdated; use REIMPORT CRYSTAL on the title menu")
+    else
+      mod.log:warn("Crystal data is not imported; use IMPORT CRYSTAL on the title menu")
+    end
     return
   end
 
   registerContent(mod, cache)
+  local daycare = require("mods.CRYSTAL_251.daycare").install(
+    mod, cache.eggAssets, cache.daycareIconAssets)
+  mod.exports.crystalDaycare = daycare
   installItemBridge()
   require("mods.CRYSTAL_251.legendaries").install(mod)
   local shinyPaths, dexPaths = {}, {}
@@ -316,7 +526,12 @@ return function(mod)
   -- DVs after calling next(), and this outer selector must see those DVs on
   -- the first frame to choose Crystal's imported shiny asset.
   end, 120)
-  mod.events:on("game.ready", function(ev) game = ev and ev.game end)
+  mod.events:on("game.ready", function(ev)
+    game = (ev and ev.game) or require("src.core.Game")
+    local dramatic = mod.find("DRAMATIC_SHAPE") or mod.find("dramatic_shape")
+    require("mods.CRYSTAL_251.battle.crystal_gender")
+      .installDramatic(dramatic and dramatic.exports)
+  end)
   mod.exports.fingerprint = cache.fingerprint
   mod.exports.revision = cache.revision
   mod.exports.dexSize = 251

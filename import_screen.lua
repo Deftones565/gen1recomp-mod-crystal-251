@@ -138,6 +138,36 @@ local function pictureImage(raw, tilesWide, tilesHigh, palette, layout)
   return image
 end
 
+local function u16(value)
+  value = value % 0x10000
+  return string.char(value % 0x100, math.floor(value / 0x100))
+end
+
+local function u32(value)
+  return string.char(value % 0x100, math.floor(value / 0x100) % 0x100,
+    math.floor(value / 0x10000) % 0x100,
+    math.floor(value / 0x1000000) % 0x100)
+end
+
+local function soundDataWav(soundData)
+  local samples = soundData:getSampleCount()
+  local channels = soundData:getChannelCount()
+  local rate = soundData:getSampleRate()
+  local pcm = {}
+  for sample = 0, samples - 1 do
+    for channel = 1, channels do
+      local value = math.max(-1, math.min(1, soundData:getSample(sample, channel)))
+      local integer = math.floor(value * 32767 + (value >= 0 and 0.5 or -0.5))
+      pcm[#pcm + 1] = u16(integer)
+    end
+  end
+  pcm = table.concat(pcm)
+  local block = channels * 2
+  return "RIFF" .. u32(36 + #pcm) .. "WAVEfmt " .. u32(16)
+    .. u16(1) .. u16(channels) .. u32(rate) .. u32(rate * block)
+    .. u16(block) .. u16(16) .. "data" .. u32(#pcm) .. pcm
+end
+
 function Screen.new(game, mod)
   local self = setmetatable({ game=game, mod=mod, status="CHOOSE CRYSTAL ROM",
     detail="PRESS A TO SELECT", progress=0 }, Screen)
@@ -159,7 +189,9 @@ function Screen:start(raw, displayName)
   self.worker = coroutine.create(function()
     local Extractor = require("mods.CRYSTAL_251.lib.extractor")
     local ImageWriter = require("src.import.ImageWriter")
+    local CacheFs = require("src.import.CacheFs")
     clearOldImport()
+    local CrystalCry = require("mods.CRYSTAL_251.lib.crystal_cry")
     local content = Extractor.extract(raw, revision, {
       writePicture = function(path, bytes, w, h, palette, layout, presentation)
         local image = pictureImage(bytes, w, h, palette, layout)
@@ -172,6 +204,11 @@ function Screen:start(raw, displayName)
         end
         ImageWriter.save(image, path)
       end,
+      writeCry = function(path, definition)
+        local sound = CrystalCry.render(raw, definition)
+        local saved, err = CacheFs.write(path, soundDataWav(sound))
+        assert(saved, err)
+      end,
       progress = function(done, total)
         self.progress = done / total
         self.detail = ("POKEMON %d / %d"):format(done, total)
@@ -180,7 +217,6 @@ function Screen:start(raw, displayName)
     })
     content.sourceSha1 = hash
     local Json = require("mods.CRYSTAL_251.lib.json")
-    local CacheFs = require("src.import.CacheFs")
     local ok, err = CacheFs.write(CACHE, Json.encode(content))
     assert(ok, err)
     self.progress, self.complete = 1, true

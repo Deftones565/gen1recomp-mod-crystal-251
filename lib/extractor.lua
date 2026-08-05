@@ -1,5 +1,6 @@
 local LZ = require("mods.CRYSTAL_251.lib.lz")
 local Catalog = require("mods.CRYSTAL_251.catalog")
+local DaycareIcons = require("mods.CRYSTAL_251.daycare_icons")
 
 local Extractor = {}
 
@@ -21,6 +22,11 @@ end
 
 function Reader:u16(offset)
   return self:u8(offset) + self:u8(offset + 1) * 256
+end
+
+function Reader:s16(offset)
+  local value = self:u16(offset)
+  return value >= 0x8000 and value - 0x10000 or value
 end
 
 function Reader:banked(bank, address)
@@ -173,6 +179,149 @@ local function unpackPicture(reader, tableOffset, index)
   return front, back
 end
 
+local function copyRestingFrame(raw, width, height)
+  local out = {}
+  for index = 1, width * height * 16 do out[index] = raw[index] end
+  return out
+end
+
+local function bitSet(value, bit)
+  return math.floor(value / 2 ^ bit) % 2 == 1
+end
+
+local function parsePicAnimationScript(reader, bank, address)
+  local offset = reader:banked(bank, address)
+  local entries = {}
+  for _ = 1, 256 do
+    local command = reader:u8(offset)
+    if command == 0xff then break end
+    entries[#entries + 1] = { command, reader:u8(offset + 1) }
+    offset = offset + 2
+  end
+  local out, pc, repeatCount = {}, 1, 0
+  for _ = 1, 1024 do
+    local row = entries[pc]
+    if not row then break end
+    pc = pc + 1
+    if row[1] == 0xfe then
+      repeatCount = row[2]
+    elseif row[1] == 0xfd then
+      if repeatCount > 0 then
+        repeatCount = repeatCount - 1
+        if repeatCount > 0 then pc = row[2] + 1 end
+      end
+    else
+      out[#out + 1] = { frame = row[1], duration = row[2] == 0 and 256 or row[2] }
+    end
+  end
+  return out
+end
+
+local function animationFrame(reader, front, width, height, tableIndex, frame,
+    framesTable, framesBank, bitmasksTable, bitmasksBank)
+  if frame == 0 then return copyRestingFrame(front, width, height) end
+  local speciesFrameAddress = reader:u16(framesTable + (tableIndex - 1) * 2)
+  local speciesFrameTable = reader:banked(framesBank, speciesFrameAddress)
+  local frameAddress = reader:u16(speciesFrameTable + (frame - 1) * 2)
+  local record = reader:banked(framesBank, frameAddress)
+  local bitmaskIndex = reader:u8(record)
+  record = record + 1
+
+  local bitmaskAddress = reader:u16(bitmasksTable + (tableIndex - 1) * 2)
+  local bitmaskBase = reader:banked(bitmasksBank, bitmaskAddress)
+  local bitmaskSize = ({ [5]=4, [6]=5, [7]=7 })[height]
+  assert(bitmaskSize, "unsupported Crystal animation size")
+  local bitmask = bitmaskBase + bitmaskIndex * bitmaskSize
+  local out = copyRestingFrame(front, width, height)
+  local bit = 0
+  for column = 0, height - 1 do
+    for row = 0, height - 1 do
+      local byte = reader:u8(bitmask + math.floor(bit / 8))
+      if bitSet(byte, bit % 8) then
+        local sourceTile = reader:u8(record)
+        record = record + 1
+        local targetTile = column * height + row
+        for index = 1, 16 do
+          out[targetTile * 16 + index] = assert(front[sourceTile * 16 + index])
+        end
+      end
+      bit = bit + 1
+    end
+  end
+  return out
+end
+
+local function extractFrontAnimation(reader, args)
+  local pointer = reader:u16(args.animationPointers
+    + (args.tableIndex - 1) * 2)
+  local sequence = parsePicAnimationScript(reader, args.animationBank, pointer)
+  if #sequence == 0 then return nil end
+  local unique, frames = {}, {}
+  for _, row in ipairs(sequence) do
+    local paths = unique[row.frame]
+    if not paths then
+      local base = "crystal_251/generated/animations/front/" .. args.stem
+        .. "_" .. tostring(row.frame)
+      paths = { normal=base .. ".png", shiny=base .. "_shiny.png" }
+      local raw = animationFrame(reader, args.front, args.width, args.height,
+        args.tableIndex, row.frame, args.framesPointers, args.framesBank,
+        args.bitmasksPointers, args.bitmasksBank)
+      args.writePicture(paths.normal, raw, args.width, args.height,
+        args.normalPalette, "columns")
+      args.writePicture(paths.shiny, raw, args.width, args.height,
+        args.shinyPalette, "columns")
+      unique[row.frame] = paths
+    end
+    frames[#frames + 1] = {
+      path=paths.normal, shinyPath=paths.shiny, duration=row.duration,
+    }
+  end
+  return { frames=frames, source="Pokemon Crystal normal front animation" }
+end
+
+local function validCryHeader(reader, bank, address)
+  if bank < 1 or bank > 0x7f or address < 0x4000 or address >= 0x8000 then
+    return false
+  end
+  local offset = reader:banked(bank, address)
+  if offset < 0 or offset + 8 >= #reader.raw then return false end
+  local first = reader:u8(offset)
+  local count = math.floor(first / 0x40) + 1
+  if count < 1 or count > 3 then return false end
+  local seen = {}
+  for index = 0, count - 1 do
+    local descriptor = reader:u8(offset + index * 3)
+    local channel = descriptor % 16 + 1
+    local target = reader:u16(offset + index * 3 + 1)
+    if not ({ [5]=true, [6]=true, [8]=true })[channel]
+        or seen[channel] or target < 0x4000 or target >= 0x8000 then
+      return false
+    end
+    seen[channel] = true
+  end
+  return true
+end
+
+local function findCryPointers(reader)
+  local rows = 69
+  for offset = 0, #reader.raw - rows * 3 do
+    local bank = reader:u8(offset)
+    local address = reader:u16(offset + 1)
+    if validCryHeader(reader, bank, address) then
+      local valid = true
+      for index = 1, rows - 1 do
+        local row = offset + index * 3
+        if not validCryHeader(reader, reader:u8(row), reader:u16(row + 1)) then
+          valid = false
+          break
+        end
+      end
+      if valid then return offset end
+    end
+  end
+  error("could not locate Crystal cry pointer table")
+end
+
 -- Crystal's SPRITE_LUGIA and SPRITE_HO_OH are not ordinary bird sheets.
 -- GetMonSprite maps each one to a species-specific menu icon, and
 -- LoadOverworldMonIcon loads all eight 2bpp tiles (two 16x16 frames). The
@@ -231,6 +380,19 @@ local function parseEvolutionData(reader, pointerTable, speciesIds, moveIds, dex
     if moveIds[move] then learnset[#learnset + 1] = { level = level, move = moveIds[move] } end
   end
   return evolutions, learnset
+end
+
+local function eggMovesFor(reader, pointerTable, bank, dex, moveIds)
+  local address = reader:u16(pointerTable + (dex - 1) * 2)
+  local pos = reader:banked(bank, address)
+  local out = {}
+  while true do
+    local move = reader:u8(pos); pos = pos + 1
+    if move == 0xff then break end
+    local id = moveIds[move]
+    if id then out[#out + 1] = id end
+  end
+  return out
 end
 
 local function tmhmFor(reader, offset, moveIds)
@@ -297,6 +459,8 @@ function Extractor.extract(raw, revision, opts)
   end
 
   local pokemon, baseAt, unownForms = {}, at("baseData"), {}
+  local eggMovePointersAt = at("eggMovePointers")
+  local eggMoveBank = assert(addresses.eggMovePointers).bank
   local palettesAt, picsAt = at("pokemonPalettes"), at("pokemonPicPointers")
   local unownPicsAt = at("unownPicPointers")
   local pokedexPointersAt = at("pokedexEntryPointers")
@@ -313,11 +477,13 @@ function Extractor.extract(raw, revision, opts)
     local shinyBack = "crystal_251/generated/shiny/back/" .. stem .. ".png"
     local dexPath = "crystal_251/generated/dex/" .. stem .. ".png"
     local shinyDex = "crystal_251/generated/shiny/dex/" .. stem .. ".png"
+    local front
     if opts.writePicture then
       local tableOffset, picIndex = picsAt, dex
       if dex == 201 then tableOffset, picIndex = unownPicsAt, 1 end
-      local ok, front, back = pcall(unpackPicture, reader, tableOffset, picIndex)
-      if not ok then error(("Crystal picture %03d (%s): %s"):format(dex, speciesIds[dex], front)) end
+      local ok, extractedFront, back = pcall(unpackPicture, reader, tableOffset, picIndex)
+      if not ok then error(("Crystal picture %03d (%s): %s"):format(dex, speciesIds[dex], extractedFront)) end
+      front = extractedFront
       -- pokemon_animation_graphics transposes every front frame before the
       -- ROM compressor sees it, so the decompressed resting frame is also
       -- column-major (see pret/pokecrystal's transpose_tiles).
@@ -346,6 +512,18 @@ function Extractor.extract(raw, revision, opts)
       crystalSpecialDefense = reader:u8(offset + 6),
       types = { assert(Catalog.typeByByte[reader:u8(offset + 7)]) },
       catchRate = reader:u8(offset + 9), baseExp = reader:u8(offset + 10),
+      crystalGenderRatio = reader:u8(offset + 13),
+      crystalHatchCycles = reader:u8(offset + 15),
+      crystalEggGroups = {
+        math.floor(reader:u8(offset + 23) / 16), reader:u8(offset + 23) % 16,
+      },
+      crystalEggMoves = eggMovesFor(reader, eggMovePointersAt,
+        eggMoveBank, dex, moveIds),
+      crystalMenuIcon = assert(DaycareIcons.BY_DEX[dex]),
+      crystalHeldItems = {
+        common = Catalog.itemByByte[reader:u8(offset + 11)],
+        rare = Catalog.itemByByte[reader:u8(offset + 12)],
+      },
       growthRate = assert(Catalog.growthByByte[reader:u8(offset + 22)]),
       pokedex = pokedex,
       level1Moves = level1, learnset = learnset, evolutions = evolutions,
@@ -362,6 +540,20 @@ function Extractor.extract(raw, revision, opts)
         ROCK="QUADRUPED", GROUND="QUADRUPED", DRAGON="SNAKE" })
         [Catalog.typeByByte[reader:u8(offset + 7)]] or "MON",
     }
+    if opts.writePicture and front and dex ~= 201 then
+      pokemon[dex].frontAnimation = extractFrontAnimation(reader, {
+        animationPointers=at("animationPointers"),
+        animationBank=addresses.animationPointers.bank,
+        framesPointers=at("framesPointers"),
+        framesBank=dex < 152 and addresses.kantoFrames.bank
+          or addresses.johtoFrames.bank,
+        bitmasksPointers=at("bitmasksPointers"),
+        bitmasksBank=addresses.bitmasksPointers.bank,
+        tableIndex=dex, stem=speciesIds[dex]:lower(), front=front,
+        width=width, height=height, normalPalette=normal,
+        shinyPalette=shiny, writePicture=opts.writePicture,
+      })
+    end
     if reader:u8(offset + 8) ~= reader:u8(offset + 7) then
       pokemon[dex].types[2] = assert(Catalog.typeByByte[reader:u8(offset + 8)])
     end
@@ -383,20 +575,76 @@ function Extractor.extract(raw, revision, opts)
       opts.writePicture(row.shinyBack, back, 6, 6, shiny, "columns")
       opts.writePicture(row.dex, front, 5, 5, nil, "columns", "dex")
       opts.writePicture(row.shinyDex, front, 5, 5, shiny, "columns", "dex")
+      row.frontAnimation = extractFrontAnimation(reader, {
+        animationPointers=at("unownAnimationPointers"),
+        animationBank=addresses.unownAnimationPointers.bank,
+        framesPointers=at("unownFramesPointers"),
+        framesBank=addresses.unownFramesPointers.bank,
+        bitmasksPointers=at("unownBitmasksPointers"),
+        bitmasksBank=addresses.unownBitmasksPointers.bank,
+        tableIndex=form, stem="unown_" .. letter:lower(), front=front,
+        width=5, height=5, normalPalette=nil, shinyPalette=shiny,
+        writePicture=opts.writePicture,
+      })
       unownForms[#unownForms + 1] = row
     end
   end
 
 
+  local eggAssets = {
+    front = "crystal_251/generated/egg/front.png",
+    icon = "crystal_251/generated/egg/icon.png",
+  }
+  if opts.writePicture then
+    -- EggPic is the same transposed, compressed animated-front format as
+    -- species front pictures. Only the first 5x5 tile frame is the resting
+    -- stats-screen image; pictureImage deliberately ignores the later frames.
+    local eggFront = LZ.decompress(reader.raw, at("eggPic") + 1)
+    opts.writePicture(eggAssets.front, eggFront, 5, 5, nil, "columns", "egg")
+
+    -- Crystal's EggIcon is a normal two-frame 16x32 sheet. Gen1Recomp's
+    -- party icon animation can ask for frames 0, 1, 2 or 3 based on the
+    -- hidden hatchling species, so repeat the two real frames once. This
+    -- keeps every possible source rect inside the imported image without
+    -- inventing any art or exposing the hidden species icon.
+    local icon = reader:bytes(at("eggIcon"), 8 * 16)
+    local fourFrames = {}
+    for copyIndex = 0, 1 do
+      for i = 1, #icon do fourFrames[copyIndex * #icon + i] = icon[i] end
+    end
+    opts.writePicture(eggAssets.icon, fourFrames, 2, 8, nil, "rows", "egg_icon")
+  end
+
   local iconTable = at("iconPointers")
   local iconBank = assert(addresses.iconPointers).bank
+  local daycareIconAssets = {}
+  for iconIndex = 1, DaycareIcons.MAX_INDEX do
+    local path = ("crystal_251/generated/daycare_icons/%02d.png"):format(iconIndex)
+    daycareIconAssets[iconIndex] = path
+    if opts.writePicture then
+      local twoFrames = unpackOverworldIcon(reader, iconTable, iconIndex, iconBank)
+      local sheet = {}
+      -- SpriteRenderer expects stand-down/up/left followed by walk-down/up/left.
+      -- Crystal menu icons are directionless, so repeat frame 1 for the three
+      -- standing poses and frame 2 for the three walking poses. NPC movement
+      -- then uses the ROM's real second animation frame while each boarder walks.
+      for copyIndex = 1, 3 do
+        for i = 1, 4 * 16 do sheet[#sheet + 1] = twoFrames[i] end
+      end
+      for copyIndex = 1, 3 do
+        for i = 4 * 16 + 1, 8 * 16 do sheet[#sheet + 1] = twoFrames[i] end
+      end
+      opts.writePicture(path, sheet, 2, 12, nil, "rows", "daycare_icon")
+    end
+  end
+
   local overworldSprites = {
     lugia = "crystal_251/generated/overworld/lugia.png",
     hoOh = "crystal_251/generated/overworld/ho_oh.png",
   }
   if opts.writePicture then
-    -- ICON_HO_OH = 33 and ICON_LUGIA = 34 in pret/pokecrystal. The assets
-    -- are row-major 16x32 sheets: two 16x16 animation frames stacked.
+    -- Keep the sanctuary paths stable while the Day Care uses the complete
+    -- icon set above.
     opts.writePicture(overworldSprites.hoOh,
       unpackOverworldIcon(reader, iconTable, 33, iconBank), 2, 4,
       nil, "rows", "overworld")
@@ -405,11 +653,41 @@ function Extractor.extract(raw, revision, opts)
       nil, "rows", "overworld")
   end
 
+  local cries = {}
+  local cryPointers = at("cryPointers")
+  local cryData = at("pokemonCries")
+  for dex = 1, 251 do
+    local row = cryData + (dex - 1) * 6
+    local cryIndex = reader:u16(row)
+    assert(cryIndex >= 0 and cryIndex < 69,
+      "invalid Crystal cry index for " .. speciesIds[dex])
+    local pointer = cryPointers + cryIndex * 3
+    local path = "crystal_251/generated/cries/"
+      .. speciesIds[dex]:lower() .. ".wav"
+    local definition = {
+      path=path,
+      header={ bank=reader:u8(pointer), address=reader:u16(pointer + 1), engine=1 },
+      pitch=reader:s16(row + 2), length=reader:u16(row + 4), index=cryIndex,
+    }
+    cries[dex] = definition
+    if opts.writeCry then opts.writeCry(path, definition) end
+  end
+
   return {
-    schema = 13, revision = revision.id, species = pokemon, moves = moves,
+    schema = 22, revision = revision.id, species = pokemon, moves = moves,
+    cries = cries,
     unownForms = unownForms, overworldSprites = overworldSprites,
-    fingerprint = revision.id .. ":251:251:v11",
+    daycareIconAssets = daycareIconAssets, eggAssets = eggAssets,
+    fingerprint = revision.id .. ":251:251:v19",
   }
 end
+
+Extractor._test = {
+  Reader=Reader,
+  parsePicAnimationScript=parsePicAnimationScript,
+  animationFrame=animationFrame,
+  validCryHeader=validCryHeader,
+  findCryPointers=findCryPointers,
+}
 
 return Extractor

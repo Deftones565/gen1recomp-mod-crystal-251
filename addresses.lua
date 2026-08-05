@@ -3,6 +3,12 @@
 -- v1.0 and v1.1; keeping two records makes validation and future changes safe.
 local common = {
   pokemonPalettes = { bank = 0x02, address = 0x68ce },
+  -- EggPic is gfx/pokemon/egg/front.animated.2bpp.lz. EggIcon is the
+  -- ordinary two-frame 16x32 party icon sheet. Both are copied from the
+  -- user's Crystal ROM during import; no Nintendo artwork ships with the mod.
+  eggPic = { bank = 0x54, address = 0x5caf },
+  eggIcon = { bank = 0x23, address = 0x798d },
+  eggMovePointers = { bank = 0x08, address = 0x7b11 },
   tmhmMoves = { bank = 0x04, address = 0x567a },
   moves = { bank = 0x10, address = 0x5afb },
   evosAttacksPointers = { bank = 0x10, address = 0x65b1 },
@@ -14,7 +20,12 @@ local common = {
   animationPointers = { bank = 0x34, address = 0x4695 },
   unownAnimationPointers = { bank = 0x34, address = 0x6229 },
   bitmasksPointers = { bank = 0x34, address = 0x64ef },
+  unownBitmasksPointers = { bank = 0x34, address = 0x7ad3 },
   framesPointers = { bank = 0x35, address = 0x4000 },
+  kantoFrames = { bank = 0x35, address = 0x41f6 },
+  johtoFrames = { bank = 0x36, address = 0x4400 },
+  unownFramesPointers = { bank = 0x36, address = 0x59a9 },
+  cryPointers = { bank = 0x3a, address = 0x51b0 },
   pokemonCries = { bank = 0x3c, address = 0x6787 },
   pokemonPicPointers = { bank = 0x48, address = 0x4000 },
   unownPicPointers = { bank = 0x49, address = 0x4000 },

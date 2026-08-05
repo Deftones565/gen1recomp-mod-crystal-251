@@ -23,12 +23,28 @@ Catalog.displayOverrides = {
 }
 
 Catalog.itemByByte = {
-  -- pret/pokecrystal constants/item_constants.asm. Unknown held trade items
-  -- may fall back to Linking Cord, but ordinary stones must stay explicit.
-  [0x08] = "MOON_STONE", [0x16] = "FIRE_STONE",
-  [0x17] = "THUNDER_STONE", [0x18] = "WATER_STONE",
-  [0x22] = "LEAF_STONE", [0x52] = "KINGS_ROCK", [0x8f] = "METAL_COAT",
-  [0x97] = "DRAGON_SCALE", [0xa9] = "SUN_STONE", [0xac] = "UP_GRADE",
+  [0x03]="BRIGHTPOWDER", [0x08]="MOON_STONE", [0x16]="FIRE_STONE",
+  [0x17]="THUNDER_STONE", [0x18]="WATER_STONE", [0x1e]="LUCKY_PUNCH",
+  [0x22]="LEAF_STONE", [0x23]="METAL_POWDER", [0x39]="EXP_SHARE",
+  [0x49]="QUICK_CLAW", [0x4a]="PSNCUREBERRY", [0x4c]="SOFT_SAND",
+  [0x4d]="SHARP_BEAK", [0x4e]="PRZCUREBERRY", [0x4f]="BURNT_BERRY",
+  [0x50]="ICE_BERRY", [0x51]="POISON_BARB", [0x52]="KINGS_ROCK",
+  [0x53]="BITTER_BERRY", [0x54]="MINT_BERRY", [0x58]="SILVERPOWDER",
+  [0x5b]="AMULET_COIN", [0x5e]="CLEANSE_TAG", [0x5f]="MYSTIC_WATER",
+  [0x60]="TWISTEDSPOON", [0x62]="BLACKBELT_I", [0x66]="BLACKGLASSES",
+  [0x68]="PINK_BOW", [0x69]="STICK", [0x6a]="SMOKE_BALL",
+  [0x6b]="NEVERMELTICE", [0x6c]="MAGNET", [0x6d]="MIRACLEBERRY",
+  [0x70]="EVERSTONE", [0x71]="SPELL_TAG", [0x75]="MIRACLE_SEED",
+  [0x76]="THICK_CLUB", [0x77]="FOCUS_BAND", [0x7d]="HARD_STONE",
+  [0x7e]="LUCKY_EGG", [0x8a]="CHARCOAL", [0x8b]="BERRY_JUICE",
+  [0x8c]="SCOPE_LENS", [0x8f]="METAL_COAT", [0x90]="DRAGON_FANG",
+  [0x92]="LEFTOVERS", [0x96]="MYSTERYBERRY", [0x97]="DRAGON_SCALE",
+  [0x98]="BERSERK_GENE", [0x9e]="FLOWER_MAIL", [0xa3]="LIGHT_BALL",
+  [0xa9]="SUN_STONE", [0xaa]="POLKADOT_BOW", [0xac]="UP_GRADE",
+  [0xad]="BERRY", [0xae]="GOLD_BERRY", [0xb5]="SURF_MAIL",
+  [0xb6]="LITEBLUEMAIL", [0xb7]="PORTRAITMAIL", [0xb8]="LOVELY_MAIL",
+  [0xb9]="EON_MAIL", [0xba]="MORPH_MAIL", [0xbb]="BLUESKY_MAIL",
+  [0xbc]="MUSIC_MAIL", [0xbd]="MIRAGE_MAIL",
 }
 
 Catalog.tmItems = {
@@ -71,9 +87,10 @@ Catalog.effectAliases = {
   [84]="LEECH_SEED_EFFECT", [85]="SPLASH_EFFECT", [86]="DISABLE_EFFECT",
   [87]="SPECIAL_DAMAGE_EFFECT", [88]="SPECIAL_DAMAGE_EFFECT",
   [89]="SPECIAL_DAMAGE_EFFECT", [103]="NO_ADDITIONAL_EFFECT",
-  [75]="CHARGE_EFFECT", [108]="BURN_SIDE_EFFECT2", [125]="BURN_SIDE_EFFECT2",
-  [145]="CHARGE_EFFECT", [151]="CHARGE_EFFECT", [153]="SWITCH_AND_TELEPORT_EFFECT",
-  [155]="FLY_EFFECT",
+  -- Most old moves remain owned by the Gen I registry. The split-stat layer
+  -- selectively replaces the few aliases whose Generation I semantics differ.
+  [75]="CHARGE_EFFECT", [145]="CHARGE_EFFECT", [151]="CHARGE_EFFECT",
+  [153]="SWITCH_AND_TELEPORT_EFFECT", [155]="FLY_EFFECT",
 }
 
 function Catalog.effectId(value)

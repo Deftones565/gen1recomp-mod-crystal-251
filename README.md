@@ -34,7 +34,7 @@ is read during import and is not copied into the mod.
 
 - Imports all 251 species, all 251 Crystal moves, base stats, types, learnsets,
   TM/HM compatibility, evolutions, palettes, front/back sprites, shiny sprites,
-  and all 26 Unown forms.
+  normal battle animation frames for every species and Unown form, Crystal cries, and all 26 Unown forms.
 - Keeps the original Generation I Special stat for Pokemon 1–151. For Pokemon
   152–251, the single Gen I Special is the higher of Crystal's Special Attack
   and Special Defense. This mirrors the practical Time Capsule constraint while
@@ -43,6 +43,17 @@ is read during import and is not copied into the mod.
 - Converts happiness evolutions to levels, trade evolutions to evolution items,
   Espeon/Umbreon to Sun Stone/Moon Stone, and Tyrogue to its three stat checks.
 - Adds HM06 Whirlpool and HM07 Waterfall to the HM rules.
+- Replaces Kanto's single-mon Generation I Day Care with Crystal's split
+  two-attendant flow. The existing Day Care Man owns the first slot, an
+  appended Day Care Lady owns the second, and an appended Route 5 Day Care Man
+  appears outside when an Egg is waiting. Deposited Pokemon appear as their
+  ROM-derived two-frame Crystal menu icons, wander around the house, and report
+  the pair's compatibility when spoken to. Both boarded Pokemon gain experience
+  per step; compatible pairs use Crystal egg groups, gender, OT IDs and
+  DV-family checks to produce Eggs with Crystal species, inherited DVs,
+  inherited moves, fees, hatch cycles, party presentation and hatching behavior.
+  Hatching a species not previously owned opens its full Pokédex entry before
+  the nickname prompt; repeat hatches proceed directly to naming.
 - Rebuilds wild ecology as a progressive Kanto ecosystem. Early routes keep
   common low-level species, caves and landmarks use habitat-appropriate pools,
   rare base forms appear in plausible locations, and most final evolutions are
@@ -107,13 +118,34 @@ Removing the mod from a save that contains Pokemon 152–251 makes those records
 unusable until the mod is enabled again. Keep a backup before changing overhaul
 mods.
 
-## Preview limitations
+## Battle presentation
 
-- Resting Crystal battle sprites are imported, but Crystal's multi-frame battle
-  animation scripts are not yet reproduced.
-- Generation II cry programs are not yet imported.
-- Moves with a direct Generation I equivalent are exact. Several Generation II
-  effects have native implementations, while the remaining effects currently
-  use a conservative fallback pending full battle-engine parity.
+- Imports Crystal's normal front-sprite animation scripts, frame replacement
+  tables, bitmasks, and shiny animation frames from the selected ROM.
+- Extracts all 251 species cry descriptors and renders their Crystal sound
+  programs to portable WAV files during import.
+- Routes every Generation II move through a recomp-native animation record
+  chosen from the matching impact, projectile, status, or field-effect family,
+  and adds weather and residual presentation for rain, sun, sandstorm,
+  Whirlpool, and Nightmare.
+- Keeps the completed Crystal battle mechanics isolated from presentation so
+  animation settings cannot alter damage, status, PP, AI, or turn ordering.
 
 The data layout and behavior cross-checks are based on `pret/pokecrystal`.
+
+## Mechanical parity tests
+
+Run the complete Crystal battle parity matrix with a supported ROM:
+
+```bash
+CRYSTAL_ROM="/path/to/Pokemon Crystal.gbc" \
+  luajit mods/CRYSTAL_251/tests/run_crystal_parity.lua
+```
+
+The runner covers all 251 move records and command streams, deterministic
+damage vectors, statuses, held items, switching, AI, end-of-turn ordering,
+battle modes, link synchronization, capture, experience, money, and level-up
+handling. `crystal_full_battle_test.lua` additionally drives complete
+BattleState queue and party-menu sequences for trapped switching, replacement,
+Pursuit, Baton Pass, Spikes, residual release, simultaneous switches, and
+volatile-state cleanup.

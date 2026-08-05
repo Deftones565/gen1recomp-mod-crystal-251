@@ -1,6 +1,6 @@
 return {
   summary = "Import a legally obtained Pokemon Crystal ROM and expand Red, Blue, or Yellow to 251 Pokemon.",
-  tags = { "overhaul", "gen-ii", "rom-import" },
+  tags = { "overhaul", "gen-ii", "rom-import", "breeding" },
   differences = {
     changed = {
       "the Pokedex, moves, learnsets, evolutions, trainers and wild ecology expand to 251",
@@ -9,15 +9,16 @@ return {
       "trainer parties are curated by class, location and badge progression",
     },
     added = {
-      "locally extracted Crystal front, back, shiny and Unown-form sprites",
+      "locally extracted Crystal front, back, shiny, Unown-form, and animated battle sprites",
+      "Crystal species cries and complete Generation II move/weather animation coverage",
       "HM06 Whirlpool, HM07 Waterfall and deterministic substitutes for trade/time evolutions",
+      "Crystal's separate Day Care slots, animated wandering boarders, compatibility dialogue, outside Egg pickup, inherited moves and DVs, hatching, and first-owned Pokédex entry display",
       "gated roaming beasts and visible Lugia and Ho-Oh sanctuaries using their dedicated Crystal map sprites",
       "seven additional Pokemon Crystal-inspired NPC trades across Kanto",
       "a grass-only Tidal Isle habitat with a swimmer route and badge-revealed cave door",
     },
     known = {
-      "Crystal battle animation scripts and cries are not imported in this preview",
-      "some Generation II move effects use a conservative fallback where Gen I has no matching mechanic",
+      "Generation II move effects use recomp-native animation equivalents; Crystal sprite animations and cries are ROM-derived",
     },
   },
   credits = {

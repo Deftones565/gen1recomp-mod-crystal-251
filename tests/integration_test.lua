@@ -23,6 +23,16 @@ love.filesystem.read=function(p)
   return oldRead(p)
 end
 local Data=require("src.core.Data"); Data:load()
+local function deepCopy(value)
+  if type(value) ~= "table" then return value end
+  local out = {}
+  for key, child in pairs(value) do out[key] = deepCopy(child) end
+  return out
+end
+local nativeGen1Moves = {}
+for id, move in pairs(Data.moves) do
+  if move.index and move.index <= 165 then nativeGen1Moves[id] = deepCopy(move) end
+end
 local sourcePrefix="assets/generated/"
 local inner=T.fs.new(".")
 local fs={root=inner.root}
@@ -44,6 +54,12 @@ end
 local run=T.sdk.loadMods({"mods/CRYSTAL_251","mods/SHINY_INDICATORS"},{data=Data,fs=fs})
 love.filesystem.getInfo,love.filesystem.read=oldInfo,oldRead
 T.eq(#run.errors,0,"mod and imported content load without registry errors")
+for id, before in pairs(nativeGen1Moves) do
+  T.same(run.data.moves[id], before,
+    id .. " remains byte-for-byte owned by the native Gen I move registry")
+end
+T.eq(run.data.moves.SKETCH.index, 166,
+  "Crystal 251 begins registering moves at Generation II index 166")
 T.eq(run.data.constants.dexSize,251,"Pokedex expands to 251")
 T.eq(#run.data.constants.hmMoves,7,"Whirlpool and Waterfall join the HM rules")
 T.eq(run.data.pokemon.MAGIKARP.battleScaleBack,1,

@@ -1,17 +1,26 @@
 {
   "id": "CRYSTAL_251",
   "name": "Crystal 251",
-  "version": "0.4.1",
+  "version": "0.9.5",
   "api": 2,
   "entry": "main.lua",
   "profile": "overhaul",
   "category": "GAMEPLAY",
-  "permissions": ["filesystem", "engine_internals"],
+  "permissions": [
+    "filesystem",
+    "engine_internals",
+    "network"
+  ],
   "game_version": ">=0.0.0-0 <2.0.0",
   "priority": 110,
   "dependencies": [],
-  "optional_dependencies": ["DRAMATIC_SHAPE", "shiny_indicators", "quality_of_life", "roaming_events"],
+  "optional_dependencies": [
+    "DRAMATIC_SHAPE",
+    "shiny_indicators",
+    "quality_of_life",
+    "roaming_events"
+  ],
   "conflicts": [],
   "affects_link": true,
-  "description": "Imports Pokemon Crystal data from the user's ROM, expands Red, Blue, and Yellow to 251 Pokemon, and adds progressive Johto habitats and legendary sanctuaries."
+  "description": "Imports Pokemon Crystal data from the user's ROM and adds complete Generation II battles, the split-attendant Crystal Day Care, animated boarders, and breeding, ROM-derived species presentation, 251 Pokemon, expanded ecology, and legendary sanctuaries."
 }
