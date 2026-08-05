@@ -1,6 +1,10 @@
 local Bridge = {}
 
+Bridge.BASE_COUNT = 151
+Bridge.MAX_COUNT = 251
 Bridge.COUNT = 251
+Bridge.OWNER_ID = "CRYSTAL_251"
+Bridge.OWNER_NAME = "Crystal 251"
 Bridge.FORMAT = "C2DSM8"
 Bridge.VARIANTS = 2
 Bridge.US_MD5 = "1561c75d11cedf356a8ddb1a4a5f9d5d"
@@ -23,6 +27,7 @@ local POSE_TABLE_END = 0x3FD5000
 local NONE16 = 0xFFFF
 
 local installedFor = nil
+local delegatedBridge = nil
 local selectionV, selectionInstall, selectionPicker
 local normalPack, shinyPack
 local fragmentParsers = {}
@@ -688,7 +693,7 @@ end
 
   local compile = loadstring or load
   local chunk, err = compile(source,
-    ("@CRYSTAL_251/stadium2/StadiumFragment_%08X.lua"):format(sourceBase))
+    ("@STADIUM2_SHARED/StadiumFragment_%08X.lua"):format(sourceBase))
   assert(chunk, err)
   local proxy = { mod = V.mod, require = V.require, data = V.data, path = V.path }
   local parser = assert(chunk(proxy), "could not clone DRAMATIC_SHAPE StadiumFragment")
@@ -810,18 +815,20 @@ local function clonePack(V, cacheDir, label)
   assert(changed == 1, "unsupported DRAMATIC_SHAPE StadiumPack limit")
   local compile = loadstring or load
   local chunk, err = compile(source,
-    "@CRYSTAL_251/stadium2/" .. tostring(label) .. "/StadiumPack.lua")
+    "@STADIUM2_SHARED/" .. tostring(label) .. "/StadiumPack.lua")
   assert(chunk, err)
   local proxy = { mod = V.mod, require = V.require, data = V.data, path = V.path }
   local pack = chunk(proxy)
   pack.CACHE_DIR = cacheDir
-  pack.DIR = "__crystal251_stadium2_no_shipped_assets__"
+  pack.DIR = "__stadium2_shared_no_shipped_assets__"
   return pack
 end
 
 local function configurePalettes(cache)
+  local species = cache and cache.species
+  if type(species) ~= "table" or #species == 0 then return false end
   paletteByDex = {}
-  for _, row in ipairs((cache and cache.species) or {}) do
+  for _, row in ipairs(species) do
     if row.dex and row.paletteColors and row.shinyPaletteColors then
       paletteByDex[row.dex] = {
         normal = row.paletteColors,
@@ -829,6 +836,37 @@ local function configurePalettes(cache)
       }
     end
   end
+  return true
+end
+
+function Bridge.configure(options)
+  options = type(options) == "table" and options or {}
+  local requested = tonumber(options.count) or Bridge.COUNT
+  requested = math.floor(requested)
+  if requested < Bridge.BASE_COUNT then requested = Bridge.BASE_COUNT end
+  if requested > Bridge.MAX_COUNT then requested = Bridge.MAX_COUNT end
+
+  local previous = Bridge.COUNT
+  if requested > Bridge.COUNT then Bridge.COUNT = requested end
+  if options.ownerId and (requested >= previous or not Bridge.OWNER_ID) then
+    Bridge.OWNER_ID = tostring(options.ownerId)
+  end
+  if options.ownerName and (requested >= previous or not Bridge.OWNER_NAME) then
+    Bridge.OWNER_NAME = tostring(options.ownerName)
+  end
+  configurePalettes(options.cache)
+
+  if selectionInstall then
+    selectionInstall.COUNT = Bridge.COUNT
+    if selectionInstall.status then selectionInstall.status.total = Bridge.COUNT end
+    if Bridge.COUNT > previous and selectionInstall.forget then
+      selectionInstall.forget()
+    end
+  end
+  if selectionPicker then
+    selectionPicker.ID = tostring(Bridge.OWNER_ID) .. ":stadium2Rom"
+  end
+  return Bridge
 end
 
 local function fallbackTexture(species)
@@ -870,8 +908,8 @@ end
 -- so retaining DRAMATIC_SHAPE's old "textures > 0" gate drops otherwise valid
 -- geometry (Magcargo in the US ROM is the known case). Attach supported
 -- procedural effects first, then give every still-untextured primitive a 1x1
--- Crystal-palette material. This changes only the cloned Crystal 251 import
--- path; DRAMATIC_SHAPE's own importer and files remain untouched.
+-- owner-supplied palette material. This changes only the cloned shared
+-- import path; DRAMATIC_SHAPE's own importer and files remain untouched.
 local function normaliseDrawableModel(model, species, Fx)
   model.bones = type(model.bones) == "table" and model.bones or {}
   model.prims = type(model.prims) == "table" and model.prims or {}
@@ -1551,7 +1589,7 @@ local function patchPack(V)
   shinyPack = clonePack(V, Bridge.SHINY_DIR, "shiny")
 
   Pack.CACHE_DIR = Bridge.ROOT_DIR
-  Pack.DIR = "__crystal251_stadium2_no_stadium1__"
+  Pack.DIR = "__stadium2_shared_no_stadium1__"
   Pack.load = function(species, variant)
     local selected = variant == "shiny" and shinyPack or normalPack
     return selected.load(species)
@@ -1588,6 +1626,108 @@ local function patchModels(V, Pack)
   end
 
   local oldAttack = StadiumMon.attack
+  local oldBuild = StadiumMon.build
+  local oldPlay = StadiumMon.play
+
+  -- LOVE normally renders at the monitor refresh rate. On a 120/144/240 Hz
+  -- display the original Stadium path therefore posed, CPU-skinned, and
+  -- uploaded both Pokemon that many times per second even though its smooth
+  -- interpolation was authored around a 60 Hz presentation. Stadium 2 models
+  -- are larger and carry more bones, so that redundant work is noticeable.
+  --
+  -- Keep the animation clock fully real-time, but only rebuild the dynamic
+  -- mesh when the next 60 Hz presentation sample is reached. At 60 Hz this is
+  -- bit-for-bit the old cadence; at 240 Hz it removes three out of every four
+  -- complete pose/skin/upload passes. Matrix-only changes such as the send-out
+  -- grow still happen every rendered frame because Stadium computes those
+  -- outside StadiumMon:build().
+  local SKIN_FPS = 60
+
+  if type(oldPlay) == "function" then
+    StadiumMon.play = function(self, ...)
+      local played = oldPlay(self, ...)
+      if played then
+        self._crystal251PoseSerial = (self._crystal251PoseSerial or 0) + 1
+        self._crystal251SkinFrame = nil
+        self._crystal251SkinDt = 0
+      end
+      return played
+    end
+  end
+
+  if type(oldBuild) == "function" then
+    StadiumMon.build = function(self)
+      if not (self.rig and self.model) then
+        self._crystal251SkinFrame = nil
+        self._crystal251SkinDt = 0
+        return oldBuild(self)
+      end
+
+      local time = tonumber(self.time) or 0
+      if time < 0 then time = 0 end
+      local anim = self.anim or 0
+      local loop = self.loop and true or false
+      local frame = math.floor(time * SKIN_FPS + 1e-7)
+      local record = self.model.anims and self.model.anims[anim] or nil
+      local sourceFrames = record and tonumber(record.frames) or 1
+      if not (sourceFrames > 1) then
+        -- Bind-pose fallbacks and genuinely one-frame clips are immutable.
+        frame = 0
+      else
+        local sourceFps = tonumber(StadiumMon.FPS) or 30
+        if not (sourceFps > 0) then sourceFps = 30 end
+        local total = math.max(1,
+          math.floor(sourceFrames * SKIN_FPS / sourceFps + 0.5))
+        if loop then
+          local loopStart = tonumber(record.loopStart) or 0
+          if not (loopStart > 0 and loopStart < sourceFrames) then
+            loopStart = 0
+          end
+          local first = math.floor(loopStart * SKIN_FPS / sourceFps + 0.5)
+          if first < 0 or first >= total then first = 0 end
+          if frame >= total then
+            frame = first + (frame - first) % math.max(1, total - first)
+          end
+        elseif frame >= total then
+          frame = total - 1
+        end
+      end
+      local serial = self._crystal251PoseSerial or 0
+      local aux = self.aux or 0
+      local yaw = self.yaw or 0
+      local elapsed = (self._crystal251SkinDt or 0) + (self.dt or 0)
+
+      if self._crystal251SkinFrame == frame
+          and self._crystal251SkinSerial == serial
+          and self._crystal251SkinAnim == anim
+          and self._crystal251SkinAux == aux
+          and self._crystal251SkinYaw == yaw
+          and self._crystal251SkinLoop == loop then
+        self._crystal251SkinDt = elapsed
+        return true
+      end
+
+      -- anchor() is time-filtered. Feed it the complete elapsed time since the
+      -- previous mesh upload rather than only the final high-refresh frame.
+      local savedDt = self.dt
+      self.dt = elapsed
+      local built = oldBuild(self)
+      self.dt = savedDt
+      if built then
+        self._crystal251SkinFrame = frame
+        self._crystal251SkinSerial = serial
+        self._crystal251SkinAnim = anim
+        self._crystal251SkinAux = aux
+        self._crystal251SkinYaw = yaw
+        self._crystal251SkinLoop = loop
+        self._crystal251SkinDt = 0
+      else
+        self._crystal251SkinFrame = nil
+        self._crystal251SkinDt = elapsed
+      end
+      return built
+    end
+  end
 
   StadiumMon.setSpecies = function(self, dex)
     local variant = wantedVariant[self.side] or "normal"
@@ -1597,6 +1737,9 @@ local function patchModels(V, Pack)
     if self.rig then self.rig:release() end
     self.rig, self.model, self.species = nil, nil, dex
     self._crystal251Variant = variant
+    self._crystal251PoseSerial = (self._crystal251PoseSerial or 0) + 1
+    self._crystal251SkinFrame = nil
+    self._crystal251SkinDt = 0
     self.grow, self.grewOwn = nil, nil
     if not dex then return false end
     local model = Pack.load(dex, variant)
@@ -1657,7 +1800,8 @@ local function writeStadiumFailure(V, text)
   end
   pcall(function()
     if io and io.stderr then
-      io.stderr:write("[CRYSTAL_251] Stadium 2 import failed:\n" .. text .. "\n")
+      io.stderr:write("[" .. tostring(Bridge.OWNER_ID)
+        .. "] Stadium 2 import failed:\n" .. text .. "\n")
       if io.stderr.flush then io.stderr:flush() end
     end
   end)
@@ -1777,7 +1921,7 @@ local function patchInstall(V, Pack)
     if readyCache ~= nil then return readyCache end
     local marker = readMarker()
     if not (marker ~= nil and marker.format == Bridge.FORMAT
-        and marker.count == Bridge.COUNT and marker.variants == Bridge.VARIANTS) then
+        and marker.count >= Bridge.COUNT and marker.variants == Bridge.VARIANTS) then
       readyCache = false
       return false
     end
@@ -2013,7 +2157,7 @@ local function patchPicker(V, Install)
   local Picker = V.require("StadiumRomPick")
   local Screen = V.require("StadiumScreen")
   Picker.LABEL = "STADIUM 2 ROM"
-  Picker.ID = "CRYSTAL_251:stadium2Rom"
+  Picker.ID = tostring(Bridge.OWNER_ID) .. ":stadium2Rom"
   Picker.PICKED = Bridge.PICKED
 
   if not Screen._crystal251FailureUi then
@@ -2090,31 +2234,67 @@ local function patchPicker(V, Install)
     return ok and name or nil
   end
 
-  local function commandOutput(command)
+  -- Host tools launched from an AppImage must not inherit the bundled
+  -- LD_LIBRARY_PATH. Otherwise system kdialog/zenity can load the AppImage's
+  -- incompatible Qt/GTK libraries, exit before drawing a window, and look
+  -- exactly like a cancelled picker. The engine's HostShell owns that fix.
+  local okHostShell, HostShell = pcall(require, "src.core.HostShell")
+
+  local function hostPopen(command)
+    if okHostShell and HostShell and type(HostShell.popen) == "function" then
+      return HostShell.popen(command, "r")
+    end
     if not haveShell() then return nil end
-    local ok, pipe = pcall(io.popen, command, "r")
-    if not (ok and pipe) then return nil end
+    local prefix = ""
+    if os and os.getenv and os.getenv("APPIMAGE") then
+      prefix = "env -u LD_LIBRARY_PATH "
+    end
+    local ok, pipe = pcall(io.popen, prefix .. command, "r")
+    return ok and pipe or nil
+  end
+
+  local function commandOutput(command)
+    local pipe = hostPopen(command)
+    if not pipe then return nil end
     local okRead, output = pcall(pipe.read, pipe, "*a")
     pcall(pipe.close, pipe)
     if not (okRead and type(output) == "string") then return nil end
-    output = output:gsub("[\r\n]+$", "")
+    output = output:gsub("^%s+", ""):gsub("%s+$", "")
     return output ~= "" and output or nil
   end
 
-  function Picker.canDialog()
-    if not (haveShell() and haveFiles()) then return false end
+  local dialogBackend = false
+  local function linuxCommand(name)
+    return commandOutput("sh -c 'command -v " .. name .. " 2>/dev/null'")
+      and true or false
+  end
+
+  local function backend()
+    if dialogBackend ~= false then return dialogBackend end
     local platform = osName()
-    return platform == "Windows" or platform == "OS X" or platform == "Linux"
+    if platform == "Windows" then dialogBackend = "powershell"
+    elseif platform == "OS X" then dialogBackend = "osascript"
+    elseif platform == "Linux" then
+      if linuxCommand("zenity") then dialogBackend = "zenity"
+      elseif linuxCommand("kdialog") then dialogBackend = "kdialog"
+      elseif linuxCommand("yad") then dialogBackend = "yad"
+      else dialogBackend = nil end
+    else dialogBackend = nil end
+    return dialogBackend
+  end
+
+  function Picker.canDialog()
+    return haveFiles() and backend() ~= nil
   end
   Picker.available = Picker.canDialog
 
   function Picker.choose()
     local prompt = "Choose your Pokemon Stadium 2 (US) ROM"
-    local platform = osName()
-    if platform == "OS X" then
+    local selected = backend()
+    if selected == "osascript" then
       return commandOutput(([[osascript -e 'POSIX path of (choose file with prompt "%s" of type ]]
         .. [[{"z64", "n64", "v64"})' 2>/dev/null]]):format(prompt))
-    elseif platform == "Windows" then
+    elseif selected == "powershell" then
       local script = table.concat({
         "Add-Type -AssemblyName System.Windows.Forms;",
         "$d=New-Object System.Windows.Forms.OpenFileDialog;",
@@ -2125,13 +2305,17 @@ local function patchPicker(V, Install)
           .. "[Text.Encoding]::UTF8; [Console]::Write($d.FileName)}",
       })
       return commandOutput('powershell -NoProfile -STA -Command "' .. script .. '"')
-    elseif platform == "Linux" then
-      local path = commandOutput(([[zenity --file-selection --title="%s" ]]
+    elseif selected == "zenity" then
+      return commandOutput(([[zenity --file-selection --title="%s" ]]
         .. [[--file-filter="Nintendo 64 ROM | *.z64 *.n64 *.v64" 2>/dev/null]])
           :format(prompt))
-      if path then return path end
+    elseif selected == "kdialog" then
       return commandOutput([[kdialog --getopenfilename "$HOME" "*.z64 *.n64 *.v64|]]
         .. [[Nintendo 64 ROM" 2>/dev/null]])
+    elseif selected == "yad" then
+      return commandOutput(([[yad --file --title="%s" ]]
+        .. [[--file-filter="Nintendo 64 ROM | *.z64 *.n64 *.v64" 2>/dev/null]])
+          :format(prompt))
     end
     return nil
   end
@@ -2151,9 +2335,13 @@ local function patchPicker(V, Install)
   function Picker.import(game)
     if Install.status.state == "building" then return false end
     if not Picker.canDialog() then
+      if V.mod and V.mod.log then
+        V.mod.log:warn("stadium2: no file-dialog backend; install kdialog, "
+          .. "zenity, or yad, or place the ROM at %s", Install.romHintFile())
+      end
       if game and game.stack then
         game.stack:push(Screen.newNote(game, "STADIUM 2 ROM",
-          "PUT STADIUM 2 US HERE:", Install.romHintFile()))
+          "INSTALL KDIALOG/ZENITY", Install.romHintFile()))
       end
       return false
     end
@@ -2182,6 +2370,27 @@ local function patchPicker(V, Install)
     return true
   end
 
+  -- A native picker is modal and blocks inside io.popen. Do not open it
+  -- directly from the options input callback: SDL may still own pointer
+  -- capture until the matching mouse-up event is pumped, leaving the dialog
+  -- behind an unresponsive captured cursor. Queue it for the next released
+  -- frame; DRAMATIC_SHAPE already polls this module every update.
+  local pendingDialogGame = nil
+  local pendingDialogArmed = false
+
+  local function mouseHeld()
+    if not (love and love.mouse and love.mouse.isDown) then return false end
+    local ok, held = pcall(love.mouse.isDown, 1, 2, 3)
+    return ok and held and true or false
+  end
+
+  function Picker.request(game)
+    if Install.status.state == "building" then return false end
+    pendingDialogGame = game or true
+    pendingDialogArmed = false
+    return true
+  end
+
   function Picker.row()
     return {
       id = Picker.ID,
@@ -2192,17 +2401,31 @@ local function patchPicker(V, Install)
         return Picker.canDialog() and "IMPORT" or "WHERE?"
       end,
       step = function(game)
-        local okImport, result = pcall(Picker.import, game)
-        if not okImport then
-          Install.fail("opening Stadium 2 importer", result)
-          if game and game.stack then game.stack:push(Screen.new(game, true)) end
-        end
+        Picker.request(game)
         return true
       end,
     }
   end
 
   function Picker.poll(game)
+    if pendingDialogGame ~= nil then
+      -- Always yield at least one update, then wait for pointer release.
+      if not pendingDialogArmed then
+        pendingDialogArmed = true
+        return false
+      end
+      if mouseHeld() then return false end
+      local target = pendingDialogGame == true and game or pendingDialogGame
+      pendingDialogGame = nil
+      pendingDialogArmed = false
+      local okImport, result = pcall(Picker.import, target)
+      if not okImport then
+        Install.fail("opening Stadium 2 importer", result)
+        if target and target.stack then target.stack:push(Screen.new(target, true)) end
+      end
+      return true
+    end
+
     local fs = filesystem()
     if not (fs and fs.getInfo) or Install.status.state == "building" then
       return false
@@ -2264,10 +2487,14 @@ local function patchPicker(V, Install)
 end
 
 function Bridge.modelRow()
+  if delegatedBridge and delegatedBridge ~= Bridge then
+    return delegatedBridge.modelRow()
+  end
   local V, Install, Picker = selectionV, selectionInstall, selectionPicker
   if not (V and Install) then return nil end
   return {
-    id = "CRYSTAL_251:stadium2Models",
+    id = tostring(Bridge.OWNER_ID) .. ":stadium2Models",
+    stadium2Shared = true,
     label = "STADIUM 2 MODELS",
     value = function()
       if Install.status and Install.status.state == "building" then return "BUILDING" end
@@ -2276,7 +2503,8 @@ function Bridge.modelRow()
     end,
     step = function(game)
       if not Install.available() then
-        if Picker and Picker.import then
+        if Picker and Picker.request then Picker.request(game)
+        elseif Picker and Picker.import then
           local ok, result = pcall(Picker.import, game)
           if not ok and Install.fail then
             Install.fail("opening Stadium 2 importer", result)
@@ -2290,13 +2518,44 @@ function Bridge.modelRow()
   }
 end
 
-function Bridge.install(mod, cache, dramatic)
+function Bridge.appendModelRow(rows)
+  if delegatedBridge and delegatedBridge ~= Bridge then
+    return delegatedBridge.appendModelRow(rows)
+  end
+  if type(rows) ~= "table" then return rows end
+  for _, row in ipairs(rows) do
+    if type(row) == "table" and (row.stadium2Shared == true
+        or row.label == "STADIUM 2 MODELS") then
+      return rows
+    end
+  end
+  local row = Bridge.modelRow()
+  if row then rows[#rows + 1] = row end
+  return rows
+end
+
+function Bridge.install(mod, cache, dramatic, options)
+  options = type(options) == "table" and options or {}
+  if options.count == nil then options.count = Bridge.COUNT end
+  if options.ownerId == nil then options.ownerId = Bridge.OWNER_ID end
+  if options.ownerName == nil then options.ownerName = Bridge.OWNER_NAME end
+  if options.cache == nil then options.cache = cache end
+  Bridge.configure(options)
+
   local exports = dramatic and dramatic.exports
   local V = exports and exports.lib
   if not (V and V.require and V.mod) then return false end
-  configurePalettes(cache)
-  if installedFor == V then return false end
 
+  local shared = V._pokemonStadium2Bridge
+  if shared and shared ~= Bridge then
+    delegatedBridge = shared
+    shared.configure(options)
+    local active = shared.install(mod, cache, dramatic, options)
+    return active or shared
+  end
+
+  if installedFor == V then return Bridge end
+  V._pokemonStadium2Bridge = Bridge
   local ok, result = pcall(function()
     local Pack = patchPack(V)
     patchModels(V, Pack)
@@ -2304,20 +2563,23 @@ function Bridge.install(mod, cache, dramatic)
     local Picker = patchPicker(V, Install)
     labelStadium2(V)
     selectionV, selectionInstall, selectionPicker = V, Install, Picker
+    Picker.ID = tostring(Bridge.OWNER_ID) .. ":stadium2Rom"
     return true
   end)
   if not ok then
+    if V._pokemonStadium2Bridge == Bridge then V._pokemonStadium2Bridge = nil end
     if mod and mod.log then
-      mod.log:warn("Crystal Stadium 2 compatibility was not installed: %s",
-        tostring(result))
+      mod.log:warn("Stadium 2 compatibility was not installed by %s: %s",
+        tostring(Bridge.OWNER_NAME), tostring(result))
     end
     return false
   end
   installedFor = V
   if mod and mod.log then
-    mod.log:info("DRAMATIC_SHAPE will use Pokemon Stadium 2 models for all 251 Pokemon")
+    mod.log:info("DRAMATIC_SHAPE will use Pokemon Stadium 2 models for Pokemon 1-%d (%s)",
+      Bridge.COUNT, tostring(Bridge.OWNER_NAME))
   end
-  return true
+  return Bridge
 end
 
 Bridge._test = {

@@ -44,8 +44,8 @@ ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.9.13"', 1, true) ~= nil,
-  "non-blocking Stadium 2 pose diagnostics have version 0.9.13")
+ok(manifestSource:find('"version": "0.9.15"', 1, true) ~= nil,
+  "high-refresh Stadium 2 skinning limiter has version 0.9.15")
 ok(mainSource:find("cacheFilesPresent", 1, true) ~= nil
    and mainSource:find("content.importFiles", 1, true) ~= nil,
   "loader rejects a cache whose generated Crystal files are missing")

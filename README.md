@@ -73,16 +73,20 @@ archive offsets, file indexes, and retained parser errors.
 - When Dramatic Shape is enabled, its public morning/day/evening/night value
   selects time-specific encounters. Without a time provider, one balanced
   all-day table is used, so the mod remains fully functional on its own.
-- With Dramatic Shape 1.6.0 or newer installed, Crystal 251 replaces its
-  optional Stadium 1 model-import path at runtime with a Stadium 2 importer for
-  National Dex 1–251. Put any correctly dumped Pokemon Stadium 2 (US) ROM in
-  `baseroms/` and the model build starts automatically when its cache is absent
-  or incomplete; OPTIONS -> STADIUM 2 ROM also opens the manual importer. Normal
-  and Crystal-DV shiny packs are generated separately. Stadium 2 display-list
+- With Dramatic Shape 1.6.0 or newer installed, Crystal 251 requests the
+  shared Stadium 2 importer for National Dex 1–251. When Shiny Indicators is
+  also enabled, both owned mods coordinate through one live bridge: Shiny
+  Indicators supplies the 1–151 base path and Crystal 251 upgrades it to 251
+  without wrapping Dramatic Shape twice or adding duplicate options rows. Put
+  any correctly dumped Pokemon Stadium 2 (US) ROM in `baseroms/`; the model
+  build starts automatically when its cache is absent or incomplete, and
+  OPTIONS -> STADIUM 2 ROM opens the manual importer. A 251 cache satisfies the
+  151-only setup; enabling Crystal 251 upgrades a 151 cache. Normal and
+  Crystal-DV shiny packs are generated separately. Stadium 2 display-list
   groups that intentionally have no texture are retained with a generated
   Crystal-palette material instead of being discarded. Neither the engine nor
-  Dramatic Shape is modified, and Stadium 1 packs are ignored while Crystal 251
-  is active.
+  Dramatic Shape is modified, and Stadium 1 packs are ignored while the shared
+  bridge is active.
 - Put a supported Pokemon Crystal ROM in `baseroms/` and Crystal 251 imports it
   automatically when `content.json` is missing, its schema is obsolete, or any
   generated sprite/cry file recorded by the cache is missing. The same import is
@@ -169,6 +173,11 @@ volatile-state cleanup.
 
 - Stadium 2 compatibility reads the National Dex model table and the separate Pokemon pose table. Each per-species pose bundle is opened recursively, and its raw relocatable skeletal records are decoded without requiring Stadium 1's `FRAGMENT` wrapper. Decoded motion tracks are packed against each imported skeleton. Missing or still-unknown pose records no longer block model import; those species use a one-frame rest-pose fallback and are reported separately.
 
+- Stadium 2 battle meshes are CPU-skinned at a maximum presentation rate of
+  60 Hz. Animation time, camera placement, send-out scaling, and battle logic
+  continue at the renderer's normal rate; high-refresh displays reuse the last
+  skinned mesh between presentation samples instead of repeating the complete
+  bone walk, vertex transform, and GPU upload at 120–240 Hz.
 - Stadium 2 pose children are decoded through their real footer layout: word
   zero points to a standard skeletal-animation header at the end of the file,
   while packed transform streams and channel records precede it. This removes

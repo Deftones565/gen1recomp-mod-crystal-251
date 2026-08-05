@@ -225,7 +225,21 @@ local modules = {
     invalidate = function() end,
   },
   Stadium = { update = function() return "updated" end },
-  StadiumMon = {},
+  StadiumMon = {
+    FPS = 30,
+    play = function(self, state, animIndex, auxIndex)
+      self.state = state
+      self.anim = animIndex or self.anim or 1
+      self.aux = auxIndex or self.aux
+      self.time = 0
+      return true
+    end,
+    build = function(self)
+      self.baseBuildCalls = (self.baseBuildCalls or 0) + 1
+      self.baseBuildDt = self.dt
+      return true
+    end,
+  },
   StadiumRig = { new = function() return nil end },
   StadiumInstall = {},
   StadiumRom = {
@@ -546,6 +560,45 @@ ok(type(modules.StadiumMon.setSpecies) == "function",
   "Stadium model selection is patched without changing DRAMATIC_SHAPE files")
 ok(type(modules.StadiumMon.attack) == "function",
   "Stadium model attack selection is extended for Crystal's 251 moves")
+ok(type(modules.StadiumMon.build) == "function",
+  "Stadium 2 installs the high-refresh skinning limiter")
+
+local perfMon = {
+  rig = {}, model = { anims={{ frames=40, loopStart=0 }} },
+  anim = 1, aux = 1, time = 0,
+  loop = true, yaw = 0, dt = 0,
+}
+modules.StadiumMon.build(perfMon)
+eq(perfMon.baseBuildCalls, 1,
+  "first visible Stadium 2 frame poses and uploads the mesh")
+for frame = 1, 3 do
+  perfMon.time = frame / 240
+  perfMon.dt = 1 / 240
+  modules.StadiumMon.build(perfMon)
+end
+eq(perfMon.baseBuildCalls, 1,
+  "240 Hz rendering reuses the same 60 Hz skinned mesh sample")
+perfMon.time = 4 / 240
+perfMon.dt = 1 / 240
+modules.StadiumMon.build(perfMon)
+eq(perfMon.baseBuildCalls, 2,
+  "the next 60 Hz presentation sample rebuilds the skinned mesh")
+ok(math.abs((perfMon.baseBuildDt or 0) - 4 / 240) < 1e-9,
+  "skipped high-refresh frame time is accumulated for the anchor filter")
+local beforeRestart = perfMon.baseBuildCalls
+modules.StadiumMon.play(perfMon, "idle", 1, 1)
+modules.StadiumMon.build(perfMon)
+eq(perfMon.baseBuildCalls, beforeRestart + 1,
+  "restarting an animation invalidates the cached skinned frame")
+local staticMon = {
+  rig = {}, model = { anims={{ frames=1, loopStart=0 }} },
+  anim = 1, time = 0, loop = true, yaw = 0, dt = 1 / 60,
+}
+modules.StadiumMon.build(staticMon)
+staticMon.time = 30
+modules.StadiumMon.build(staticMon)
+eq(staticMon.baseBuildCalls, 1,
+  "one-frame rest-pose fallbacks upload only once")
 local requestedAttack
 local gen2Mon = {
   model = { anims = { {}, {} } },
@@ -646,6 +699,10 @@ ok(bridgeSource:find("if job.builtCount == Bridge.COUNT then", 1, true) ~= nil
 ok(bridgeSource:find("stadium2AnimationFallback", 1, true) ~= nil
    and bridgeSource:find("fallbackBuilt", 1, true) ~= nil,
   "missing pose records are packed with a reported bind-pose fallback")
+ok(bridgeSource:find("local SKIN_FPS = 60", 1, true) ~= nil
+   and bridgeSource:find("_crystal251SkinFrame", 1, true) ~= nil
+   and bridgeSource:find("self.dt = elapsed", 1, true) ~= nil,
+  "Stadium 2 CPU skinning is capped at 60 Hz with accumulated anchor time")
 ok(bridgeSource:find("cache missing or outdated; starting automatic", 1, true) ~= nil
    and bridgeSource:find("local started, beginErr = Install.begin()", 1, true) ~= nil
    and bridgeSource:find("Screen.new(Game, true)", 1, true) ~= nil,

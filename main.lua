@@ -433,7 +433,12 @@ local function registerContent(mod, cache)
   local dramatic = mod.find("DRAMATIC_SHAPE") or mod.find("dramatic_shape")
   CrystalGender.installDramatic(dramatic and dramatic.exports)
   local stadium2Bridge = require("mods.CRYSTAL_251.lib.stadium2_bridge")
-  stadium2Bridge.install(mod, cache, dramatic)
+  local activeStadium2Bridge = stadium2Bridge.install(mod, cache, dramatic, {
+    count = 251,
+    ownerId = mod.id,
+    ownerName = "Crystal 251",
+    cache = cache,
+  }) or stadium2Bridge
   local presentation = require("mods.CRYSTAL_251.battle.crystal_presentation")
   presentation.configure(cache)
   presentation.installRuntime()
@@ -442,7 +447,7 @@ local function registerContent(mod, cache)
   mod.exports.crystalProgression = CrystalProgression
   mod.exports.crystalGender = CrystalGender
   mod.exports.crystalSummary = CrystalSummary
-  mod.exports.crystalStadium2 = stadium2Bridge
+  mod.exports.crystalStadium2 = activeStadium2Bridge
   mod.exports.rollWildHeldItem = bridge.rollWildHeldItem
 
   local overworld = assert(cache.overworldSprites,
@@ -506,10 +511,11 @@ return function(mod)
       end,
       activate = function(g) mod.ui.push(g, "Crystal251Import") end,
     }
-    local okModels, modelRow = pcall(function()
-      return require("mods.CRYSTAL_251.lib.stadium2_bridge").modelRow()
-    end)
-    if okModels and modelRow then out[#out + 1] = modelRow end
+    local okModels, bridge = pcall(require,
+      "mods.CRYSTAL_251.lib.stadium2_bridge")
+    if okModels and bridge and bridge.appendModelRow then
+      bridge.appendModelRow(out)
+    end
     return out
   end, 100)
   if not cache then
@@ -580,8 +586,14 @@ return function(mod)
     local dramatic = mod.find("DRAMATIC_SHAPE") or mod.find("dramatic_shape")
     require("mods.CRYSTAL_251.battle.crystal_gender")
       .installDramatic(dramatic and dramatic.exports)
-    require("mods.CRYSTAL_251.lib.stadium2_bridge")
-      .install(mod, cache, dramatic)
+    local stadium2 = require("mods.CRYSTAL_251.lib.stadium2_bridge")
+    local active = stadium2.install(mod, cache, dramatic, {
+      count = 251,
+      ownerId = mod.id,
+      ownerName = "Crystal 251",
+      cache = cache,
+    })
+    if active then mod.exports.crystalStadium2 = active end
   end)
   mod.exports.fingerprint = cache.fingerprint
   mod.exports.revision = cache.revision

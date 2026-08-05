@@ -1,7 +1,7 @@
 {
   "id": "CRYSTAL_251",
   "name": "Crystal 251",
-  "version": "0.9.13",
+  "version": "0.9.15",
   "api": 2,
   "entry": "main.lua",
   "profile": "overhaul",
@@ -22,5 +22,6 @@
   ],
   "conflicts": [],
   "affects_link": true,
-  "description": "Imports Pokemon Crystal data from the user's ROM and adds complete Generation II battles, the split-attendant Crystal Day Care, animated boarders, and breeding, ROM-derived species presentation, 251 Pokemon, expanded ecology, and legendary sanctuaries."
+  "description": "Imports Pokemon Crystal data from the user's ROM and adds complete Generation II battles, the split-attendant Crystal Day Care, animated boarders, and breeding, ROM-derived species presentation, 251 Pokemon, expanded ecology, and legendary sanctuaries.",
+  "github": "Deftones565/gen1recomp-mod-crystal-251"
 }
