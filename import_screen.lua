@@ -4,6 +4,18 @@ local Picture = require("mods.CRYSTAL_251.lib.picture")
 
 local CACHE = "crystal_251/content.json"
 local GENERATED = "crystal_251/generated"
+local ERROR_LOG = "crystal_251/import_error.log"
+
+Screen.ROM_DIR = "baseroms"
+
+local PREFERRED_ROMS = {
+  Screen.ROM_DIR .. "/pokemon_crystal.gbc",
+  Screen.ROM_DIR .. "/pokemon_crystal_version.gbc",
+  Screen.ROM_DIR .. "/crystal.gbc",
+  Screen.ROM_DIR .. "/baserom.gbc",
+}
+
+local cachedAutoRom = nil
 
 -- CacheFs owns portable installs, while love.filesystem owns the ordinary
 -- per-user save directory. Clear both possible locations, but only recurse
@@ -34,8 +46,51 @@ local function clearOldImport()
   local CacheFs = require("src.import.CacheFs")
   CacheFs.removeTree(GENERATED)
   CacheFs.remove(CACHE)
+  CacheFs.remove(ERROR_LOG)
   removeSaveTree(GENERATED)
   removeSaveTree(CACHE)
+  removeSaveTree(ERROR_LOG)
+end
+
+local function oneLine(value)
+  return tostring(value or "unknown error")
+    :gsub("\r", "")
+    :gsub("\n+", " | ")
+    :gsub("%s+", " ")
+    :gsub("^%s+", "")
+    :gsub("%s+$", "")
+end
+
+local function traceback(worker, err)
+  local message = tostring(err or "unknown error")
+  if debug and debug.traceback then
+    local ok, value = pcall(debug.traceback, worker, message)
+    if ok and type(value) == "string" then return value end
+  end
+  return message
+end
+
+local function writeFailureLog(mod, text)
+  text = tostring(text or "unknown error")
+  if mod and mod.log then
+    pcall(function() mod.log:error("Crystal import failed: %s", text) end)
+  end
+  pcall(function()
+    if io and io.stderr then
+      io.stderr:write("[CRYSTAL_251] Crystal import failed:\n" .. text .. "\n")
+      if io.stderr.flush then io.stderr:flush() end
+    end
+  end)
+  local okCache, CacheFs = pcall(require, "src.import.CacheFs")
+  if okCache and CacheFs and CacheFs.write then
+    local okWrite, wrote = pcall(CacheFs.write, ERROR_LOG, text .. "\n")
+    if okWrite and wrote then return end
+  end
+  pcall(function()
+    if love and love.filesystem and love.filesystem.write then
+      love.filesystem.write(ERROR_LOG, text .. "\n")
+    end
+  end)
 end
 
 local function readExternal(path)
@@ -44,6 +99,69 @@ local function readExternal(path)
   local raw = file:read("*a")
   file:close()
   return raw
+end
+
+local function identify(raw)
+  if type(raw) ~= "string" then return nil end
+  local ok, hash = pcall(function()
+    return love.data.encode("string", "hex", love.data.hash("sha1", raw))
+  end)
+  if not ok then return nil end
+  local revision = require("mods.CRYSTAL_251.addresses").revisions[hash]
+  if not revision then return nil end
+  return { raw=raw, hash=hash, revision=revision }
+end
+
+local function isFile(path)
+  if not (love and love.filesystem and love.filesystem.getInfo) then return false end
+  local ok, info = pcall(love.filesystem.getInfo, path, "file")
+  return ok and info and true or false
+end
+
+function Screen.romHint()
+  local fs = love and love.filesystem
+  local base = fs and fs.getSaveDirectory
+    and select(2, pcall(fs.getSaveDirectory)) or nil
+  if type(base) ~= "string" then base = "the game folder" end
+  return base .. "/" .. Screen.ROM_DIR
+end
+
+function Screen.findRom()
+  if cachedAutoRom then return cachedAutoRom end
+  local fs = love and love.filesystem
+  if not (fs and fs.read and fs.getDirectoryItems) then return nil end
+  local candidates, seen = {}, {}
+  local function add(path)
+    if not seen[path] and isFile(path) then
+      seen[path] = true
+      candidates[#candidates + 1] = path
+    end
+  end
+  for _, path in ipairs(PREFERRED_ROMS) do add(path) end
+  local ok, items = pcall(fs.getDirectoryItems, Screen.ROM_DIR)
+  if ok and items then
+    table.sort(items)
+    for _, name in ipairs(items) do
+      if name:lower():match("%.gbc$") then
+        add(Screen.ROM_DIR .. "/" .. name)
+      end
+    end
+  end
+  for _, path in ipairs(candidates) do
+    local okRead, raw = pcall(fs.read, path)
+    local found = okRead and identify(raw) or nil
+    if found then
+      found.path = path
+      found.name = path:match("[^/]+$") or path
+      cachedAutoRom = found
+      return found
+    end
+  end
+  return nil
+end
+
+function Screen.romPresent()
+  return Screen.findRom() ~= nil
 end
 
 local function commandOutput(command)
@@ -174,26 +292,74 @@ function Screen.new(game, mod)
   return self
 end
 
-function Screen:start(raw, displayName)
+function Screen.newAuto(game, mod)
+  local self = Screen.new(game, mod)
+  self.autoRestart = true
+  local found = Screen.findRom()
+  if found then
+    self:start(found.raw, found.name, found)
+  else
+    self.status = "CRYSTAL ROM NOT FOUND"
+    self.detail = Screen.romHint()
+  end
+  return self
+end
+
+function Screen:fail(stage, err, fullTrace)
+  local reason = oneLine(err)
+  local where = oneLine(stage or self.stage or "Crystal import")
+  local rom = self.romName and ("ROM: " .. tostring(self.romName) .. "\n") or ""
+  local full = ("Stage: %s\n%sReason: %s\n\n%s")
+    :format(where, rom, reason, tostring(fullTrace or err or "unknown error"))
+  self.worker = nil
+  self.complete = false
+  self.restarting = false
+  self.status = "CRYSTAL IMPORT FAILED"
+  self.detail = where .. ": " .. reason
+  self.errorFull = full
+  self.errorLog = ERROR_LOG
+  writeFailureLog(self.mod, full)
+end
+
+function Screen:start(raw, displayName, identified)
   if self.worker then return end
-  if type(raw) ~= "string" then self.status="COULD NOT READ ROM"; return end
-  local hash = love.data.encode("string", "hex", love.data.hash("sha1", raw))
-  local manifest = require("mods.CRYSTAL_251.addresses")
-  local revision = manifest.revisions[hash]
-  if not revision then
-    self.status = "UNSUPPORTED CRYSTAL ROM"
-    self.detail = "SHA-1 " .. hash
+  self.romName = displayName or "Crystal ROM"
+  self.errorFull, self.errorLog = nil, nil
+  if type(raw) ~= "string" then
+    self:fail("reading ROM", "ROM data is not a byte string")
     return
   end
+  local found = identified or identify(raw)
+  if not found then
+    local ok, hash = pcall(function()
+      return love.data.encode("string", "hex", love.data.hash("sha1", raw))
+    end)
+    local reason = ok and ("unsupported ROM; SHA-1 " .. tostring(hash))
+      or "could not calculate ROM SHA-1"
+    self:fail("validating ROM", reason)
+    return
+  end
+  local hash, revision = found.hash, found.revision
   self.status, self.detail = "IMPORTING CRYSTAL", revision.title
+  self.stage = "starting import"
   self.worker = coroutine.create(function()
+    self.stage = "loading Crystal extractor"
     local Extractor = require("mods.CRYSTAL_251.lib.extractor")
     local ImageWriter = require("src.import.ImageWriter")
     local CacheFs = require("src.import.CacheFs")
+    self.stage = "clearing old Crystal cache"
     clearOldImport()
+    local importedFiles, importedSet = {}, {}
+    local function recordFile(path)
+      if type(path) == "string" and not importedSet[path] then
+        importedSet[path] = true
+        importedFiles[#importedFiles + 1] = path
+      end
+    end
     local CrystalCry = require("mods.CRYSTAL_251.lib.crystal_cry")
     local content = Extractor.extract(raw, revision, {
       writePicture = function(path, bytes, w, h, palette, layout, presentation)
+        self.stage = "writing image " .. tostring(path)
         local image = pictureImage(bytes, w, h, palette, layout)
         if presentation == "dex" then
           local canvas = ImageWriter.blank(56, 56, 0, 0, 0, 0)
@@ -203,24 +369,33 @@ function Screen:start(raw, displayName)
           image = canvas
         end
         ImageWriter.save(image, path)
+        recordFile(path)
       end,
       writeCry = function(path, definition)
+        self.stage = "rendering cry " .. tostring(path)
         local sound = CrystalCry.render(raw, definition)
         local saved, err = CacheFs.write(path, soundDataWav(sound))
         assert(saved, err)
+        recordFile(path)
       end,
       progress = function(done, total)
+        self.stage = ("extracting Pokemon %d of %d"):format(done, total)
         self.progress = done / total
         self.detail = ("POKEMON %d / %d"):format(done, total)
         coroutine.yield()
       end,
     })
     content.sourceSha1 = hash
+    content.importFiles = importedFiles
+    self.stage = "writing Crystal content cache"
     local Json = require("mods.CRYSTAL_251.lib.json")
     local ok, err = CacheFs.write(CACHE, Json.encode(content))
     assert(ok, err)
+    self.stage = "complete"
     self.progress, self.complete = 1, true
-    self.status, self.detail = "CRYSTAL IMPORT COMPLETE", "PRESS A TO RESTART"
+    self.restartDelay = self.autoRestart and 0.5 or nil
+    self.status = "CRYSTAL IMPORT COMPLETE"
+    self.detail = self.autoRestart and "RESTARTING" or "PRESS A TO RESTART"
   end)
 end
 
@@ -228,26 +403,37 @@ function Screen:choose()
   local path = choosePath()
   if path then
     local raw, err = readExternal(path)
-    if not raw then self.status, self.detail = "COULD NOT READ ROM", tostring(err); return end
+    if not raw then
+      self:fail("reading selected Crystal ROM", err,
+        "ROM: " .. tostring(path) .. "\n" .. tostring(err or "unknown error"))
+      return
+    end
     self:start(raw, path:match("[^/\\]+$") or path)
     return
   end
-  for _, file in ipairs(love.filesystem.getDirectoryItems("")) do
-    if file:lower():match("%.gbc$") then
-      local raw = love.filesystem.read(file)
-      if raw then self:start(raw, file); return end
-    end
+  local found = Screen.findRom()
+  if found then
+    self:start(found.raw, found.name, found)
+    return
   end
   self.status = "NO FILE PICKER AVAILABLE"
-  self.detail = "COPY YOUR CRYSTAL ROM BESIDE THE GAME"
+  self.detail = "PUT CRYSTAL ROM IN " .. Screen.romHint()
 end
 
-function Screen:update()
+function Screen:update(dt)
   if self.worker and coroutine.status(self.worker) ~= "dead" then
     local ok, err = coroutine.resume(self.worker)
     if not ok then
-      self.worker = nil
-      self.status, self.detail = "IMPORT FAILED", tostring(err)
+      local worker = self.worker
+      self:fail(self.stage or "Crystal import", err, traceback(worker, err))
+    end
+    return
+  end
+  if self.complete and self.autoRestart then
+    self.restartDelay = (self.restartDelay or 0) - (dt or 1 / 60)
+    if self.restartDelay <= 0 and not self.restarting then
+      self.restarting = true
+      require("src.core.HostShell").restart()
     end
     return
   end
@@ -262,12 +448,20 @@ function Screen:draw()
   local Font = require("src.render.Font")
   local function wrapped(text, width)
     local lines, line = {}, ""
-    for word in tostring(text or ""):gmatch("%S+") do
-      if #line == 0 then line=word
-      elseif #line + #word + 1 <= width then line=line .. " " .. word
-      else lines[#lines+1]=line; line=word end
+    local function push(value)
+      if value ~= "" then lines[#lines + 1] = value end
     end
-    if line~="" then lines[#lines+1]=line end
+    for word in tostring(text or ""):gmatch("%S+") do
+      while #word > width do
+        if line ~= "" then push(line); line = "" end
+        push(word:sub(1, width))
+        word = word:sub(width + 1)
+      end
+      if #line == 0 then line = word
+      elseif #line + #word + 1 <= width then line = line .. " " .. word
+      else push(line); line = word end
+    end
+    push(line)
     return lines
   end
   local function drawWrapped(text, x, y, width, limit)
@@ -277,13 +471,25 @@ function Screen:draw()
   love.graphics.clear(1, 1, 1, 1)
   love.graphics.setColor(0, 0, 0, 1)
   Font.drawBox(0, 0, 20, 18)
-  Font.draw("CRYSTAL 251", 40, 24)
-  drawWrapped(self.status, 16, 56, 17, 2)
-  drawWrapped(self.detail, 16, 88, 17, 2)
-  love.graphics.rectangle("line", 16, 124, 128, 8)
-  love.graphics.rectangle("fill", 17, 125, math.floor(126 * self.progress), 6)
-  Font.draw("A: SELECT   B: BACK", 16, 144)
+  if self.errorFull then
+    Font.draw("CRYSTAL IMPORT", 24, 16)
+    Font.draw("FAILED", 56, 28)
+    drawWrapped(self.detail, 16, 44, 17, 6)
+    Font.draw("FULL ERROR PRINTED", 8, 116)
+    Font.draw("A: RETRY B: BACK", 8, 128)
+  else
+    Font.draw("CRYSTAL 251", 40, 24)
+    drawWrapped(self.status, 16, 56, 17, 2)
+    drawWrapped(self.detail, 16, 88, 17, 2)
+    love.graphics.rectangle("line", 16, 124, 128, 8)
+    love.graphics.rectangle("fill", 17, 125, math.floor(126 * self.progress), 6)
+    Font.draw("A: SELECT B: BACK", 16, 136)
+  end
   love.graphics.setColor(1, 1, 1, 1)
+end
+
+function Screen._resetAutoCandidate()
+  cachedAutoRom = nil
 end
 
 return Screen

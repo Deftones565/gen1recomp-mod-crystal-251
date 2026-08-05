@@ -29,6 +29,7 @@ local manifestSource = read(root .. "manifest.json")
 local importSource = read(root .. "import_screen.lua")
 local crySource = read(root .. "lib/crystal_cry.lua")
 local summarySource = read(root .. "battle/crystal_summary.lua")
+local stadium2Source = read(root .. "lib/stadium2_bridge.lua")
 
 ok(not effectsSource:find("implemented=false", 1, true),
   "final effects registry has no unimplemented placeholders")
@@ -38,18 +39,53 @@ local configureAt = assert(mainSource:find("bridge.setHeldItems", 1, true))
 local installAt = assert(mainSource:find("bridge.install()", 1, true))
 ok(installAt > configureAt,
   "runtime hooks install only after imported held-item data is configured")
-ok(mainSource:find("local supported = { [22]=true }", 1, true) ~= nil,
-  "loader accepts the Crystal-cry schema 22 cache")
-ok(not mainSource:find("local supported = { [21]=true }", 1, true),
-  "loader rejects fallback cry caches after reimport")
-ok(manifestSource:find('"version": "0.9.5"', 1, true) ~= nil,
-  "split-stat summary has version 0.9.5")
+ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
+  "loader accepts the auto-import schema 24 cache")
+ok(not mainSource:find("local supported = { [22]=true }", 1, true)
+   and not mainSource:find("local supported = { [23]=true }", 1, true),
+  "loader rejects caches without the current import manifest")
+ok(manifestSource:find('"version": "0.9.13"', 1, true) ~= nil,
+  "non-blocking Stadium 2 pose diagnostics have version 0.9.13")
+ok(mainSource:find("cacheFilesPresent", 1, true) ~= nil
+   and mainSource:find("content.importFiles", 1, true) ~= nil,
+  "loader rejects a cache whose generated Crystal files are missing")
+ok(mainSource:find("Crystal251AutoImport", 1, true) ~= nil
+   and mainSource:find("ImportScreen.romPresent()", 1, true) ~= nil,
+  "missing or obsolete Crystal data auto-imports a ROM from baseroms")
+ok(mainSource:find('label = "CRYSTAL ROM"', 1, true) ~= nil,
+  "OPTIONS exposes the manual Crystal ROM importer")
+ok(importSource:find('Screen.ROM_DIR = "baseroms"', 1, true) ~= nil
+   and importSource:find("function Screen.findRom()", 1, true) ~= nil,
+  "Crystal auto-import scans the shared baseroms folder")
+ok(importSource:find("content.importFiles = importedFiles", 1, true) ~= nil,
+  "Crystal cache records every generated sprite and cry")
+ok(importSource:find('local ERROR_LOG = "crystal_251/import_error.log"', 1, true) ~= nil
+   and importSource:find("writeFailureLog", 1, true) ~= nil,
+  "Crystal import writes the exact failure to terminal and a persistent log")
+ok(importSource:find("traceback(worker, err)", 1, true) ~= nil,
+  "Crystal coroutine failures retain a traceback and failing stage")
+ok(stadium2Source:find("Bridge.ERROR_LOG", 1, true) ~= nil
+   and stadium2Source:find("writeStadiumFailure", 1, true) ~= nil,
+  "Stadium 2 import writes detailed failure diagnostics")
+ok(stadium2Source:find("pcall(active.step, active)", 1, true) ~= nil,
+  "unexpected Stadium 2 model-step exceptions become visible failures")
 ok(mainSource:find("CrystalSummary.configure(crystalBaseStats)", 1, true) ~= nil,
   "summary receives the imported Crystal base-stat table")
 ok(summarySource:find('{ "S.ATK", stats.specialAttack }', 1, true) ~= nil,
   "summary draws Special Attack separately")
 ok(summarySource:find('{ "S.DEF", stats.specialDefense }', 1, true) ~= nil,
   "summary draws Special Defense separately")
+ok(mainSource:find('require("mods.CRYSTAL_251.lib.stadium2_bridge")', 1, true) ~= nil,
+  "Crystal installs the Stadium 2 bridge from its own mod")
+ok(stadium2Source:find('Bridge.COUNT = 251', 1, true) ~= nil,
+  "Stadium 2 bridge covers all 251 Pokemon")
+ok(stadium2Source:find('species <= 251', 1, true) ~= nil,
+  "the cloned DRAMATIC_SHAPE pack reader accepts the expanded dex")
+ok(stadium2Source:find('Bridge.NORMAL_DIR', 1, true) ~= nil
+   and stadium2Source:find('Bridge.SHINY_DIR', 1, true) ~= nil,
+  "normal and shiny Stadium 2 packs are stored separately")
+ok(not stadium2Source:find('mods/DRAMATIC_SHAPE', 1, true),
+  "compatibility does not patch DRAMATIC_SHAPE files on disk")
 ok(importSource:find("CrystalCry.render(raw, definition)", 1, true) ~= nil,
   "Crystal imports use the mod-local cry renderer")
 ok(not importSource:find("ChipSynth", 1, true),

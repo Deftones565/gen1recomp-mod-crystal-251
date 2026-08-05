@@ -536,6 +536,7 @@ function Extractor.extract(raw, revision, opts)
       shinySpriteFront = shinyFront, shinySpriteBack = shinyBack,
       spriteDex = dexPath, shinySpriteDex = shinyDex,
       palette = "CRYSTAL_251_" .. speciesIds[dex], paletteColors = normal,
+      shinyPaletteColors = shiny,
       icon = ({ GRASS="GRASS", WATER="WATER", BUG="BUG", FLYING="BIRD",
         ROCK="QUADRUPED", GROUND="QUADRUPED", DRAGON="SNAKE" })
         [Catalog.typeByByte[reader:u8(offset + 7)]] or "MON",
@@ -674,11 +675,11 @@ function Extractor.extract(raw, revision, opts)
   end
 
   return {
-    schema = 22, revision = revision.id, species = pokemon, moves = moves,
+    schema = 24, revision = revision.id, species = pokemon, moves = moves,
     cries = cries,
     unownForms = unownForms, overworldSprites = overworldSprites,
     daycareIconAssets = daycareIconAssets, eggAssets = eggAssets,
-    fingerprint = revision.id .. ":251:251:v19",
+    fingerprint = revision.id .. ":251:251:v21",
   }
 end
 

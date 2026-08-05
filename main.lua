@@ -41,20 +41,34 @@ local KANTO_EFFECT_OVERRIDES = {
   DEFENSE_CURL = "CRYSTAL_EFFECT_9C",
 }
 
+local function cacheFilesPresent(content)
+  local files = content and content.importFiles
+  if type(files) ~= "table" or #files == 0 then return false end
+  for _, path in ipairs(files) do
+    if type(path) ~= "string" then return false end
+    local ok, info = pcall(love.filesystem.getInfo, path, "file")
+    if not (ok and info) then return false end
+  end
+  return true
+end
+
 local function loadCache()
   if not (love and love.filesystem and love.filesystem.getInfo(CACHE, "file")) then
     return nil, false
   end
-  local raw = love.filesystem.read(CACHE)
-  if not raw then return nil, true end
-  local content = require("mods.CRYSTAL_251.lib.json").decode(raw)
-  local supported = { [22]=true }
+  local okRead, raw = pcall(love.filesystem.read, CACHE)
+  if not okRead or type(raw) ~= "string" then return nil, true end
+  local Json = require("mods.CRYSTAL_251.lib.json")
+  local okDecode, content = pcall(Json.decode, raw)
+  if not okDecode then return nil, true end
+  local supported = { [24]=true }
   if type(content) ~= "table" or not supported[content.schema] then
     return nil, true
   end
   local Gender = require("mods.CRYSTAL_251.battle.crystal_gender")
   local Daycare = require("mods.CRYSTAL_251.daycare")
-  if not Gender.cacheHasRatios(content) or not Daycare.cacheHasData(content) then
+  if not Gender.cacheHasRatios(content) or not Daycare.cacheHasData(content)
+      or not cacheFilesPresent(content) then
     return nil, true
   end
   return content, false
@@ -350,7 +364,7 @@ local function registerContent(mod, cache)
     row.pokedex = nil
     row.shinySpriteFront, row.shinySpriteBack = nil, nil
     row.spriteDex, row.shinySpriteDex = nil, nil
-    row.paletteColors = nil
+    row.paletteColors, row.shinyPaletteColors = nil, nil
     row.crystalSpecialAttack, row.crystalSpecialDefense = nil, nil
     if mod.content.pokemon:get(id) then mod.content.pokemon:override(id, row)
     else mod.content.pokemon:register(id, row) end
@@ -418,6 +432,8 @@ local function registerContent(mod, cache)
   bridge.install()
   local dramatic = mod.find("DRAMATIC_SHAPE") or mod.find("dramatic_shape")
   CrystalGender.installDramatic(dramatic and dramatic.exports)
+  local stadium2Bridge = require("mods.CRYSTAL_251.lib.stadium2_bridge")
+  stadium2Bridge.install(mod, cache, dramatic)
   local presentation = require("mods.CRYSTAL_251.battle.crystal_presentation")
   presentation.configure(cache)
   presentation.installRuntime()
@@ -426,6 +442,7 @@ local function registerContent(mod, cache)
   mod.exports.crystalProgression = CrystalProgression
   mod.exports.crystalGender = CrystalGender
   mod.exports.crystalSummary = CrystalSummary
+  mod.exports.crystalStadium2 = stadium2Bridge
   mod.exports.rollWildHeldItem = bridge.rollWildHeldItem
 
   local overworld = assert(cache.overworldSprites,
@@ -462,8 +479,12 @@ return function(mod)
     { key="legendary_ko_removes", label="KO REMOVES LEGEND", type="toggle", default=false },
     { key="force_legendary", label="TEST LEGENDARY", type="toggle", default=false },
   })
+  local ImportScreen = require("mods.CRYSTAL_251.import_screen")
   mod.content.screens:register("Crystal251Import", {
-    new=function(game) return require("mods.CRYSTAL_251.import_screen").new(game, mod) end,
+    new=function(game) return ImportScreen.new(game, mod) end,
+  })
+  mod.content.screens:register("Crystal251AutoImport", {
+    new=function(game) return ImportScreen.newAuto(game, mod) end,
   })
   mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
     items = next(game, items)
@@ -473,11 +494,39 @@ return function(mod)
     })
     return items
   end, 100)
+  mod.hooks:wrap("ui.options.rows", function(next, game, rows)
+    local out = next(game, rows)
+    if type(out) ~= "table" then return out end
+    out[#out + 1] = {
+      id = "CRYSTAL_251:crystalRom",
+      label = "CRYSTAL ROM",
+      value = function()
+        if cache then return "READY" end
+        return staleCache and "UPDATE" or "IMPORT"
+      end,
+      activate = function(g) mod.ui.push(g, "Crystal251Import") end,
+    }
+    local okModels, modelRow = pcall(function()
+      return require("mods.CRYSTAL_251.lib.stadium2_bridge").modelRow()
+    end)
+    if okModels and modelRow then out[#out + 1] = modelRow end
+    return out
+  end, 100)
   if not cache then
+    local autoStarted = false
+    mod.events:on("game.ready", function(ev)
+      if autoStarted or not ImportScreen.romPresent() then return end
+      local readyGame = (ev and ev.game) or require("src.core.Game")
+      if not (readyGame and readyGame.stack) then return end
+      autoStarted = true
+      mod.ui.push(readyGame, "Crystal251AutoImport")
+    end)
     if staleCache then
-      mod.log:warn("Crystal cache is outdated; use REIMPORT CRYSTAL on the title menu")
+      mod.log:warn("Crystal cache is outdated or incomplete; a ROM in baseroms "
+        .. "will be reimported automatically, or use CRYSTAL ROM in OPTIONS")
     else
-      mod.log:warn("Crystal data is not imported; use IMPORT CRYSTAL on the title menu")
+      mod.log:warn("Crystal data is not imported; a ROM in baseroms will be "
+        .. "imported automatically, or use CRYSTAL ROM in OPTIONS")
     end
     return
   end
@@ -531,6 +580,8 @@ return function(mod)
     local dramatic = mod.find("DRAMATIC_SHAPE") or mod.find("dramatic_shape")
     require("mods.CRYSTAL_251.battle.crystal_gender")
       .installDramatic(dramatic and dramatic.exports)
+    require("mods.CRYSTAL_251.lib.stadium2_bridge")
+      .install(mod, cache, dramatic)
   end)
   mod.exports.fingerprint = cache.fingerprint
   mod.exports.revision = cache.revision
