@@ -107,7 +107,9 @@ do
 
   local low = mon("LOW", false)
   local lowBattle = battle(p, low, { 1 })
-  Status.inflict(lowBattle, low, "SLP", {})
+  local sleepText = Status.inflict(lowBattle, low, "SLP", {})
+  eq(sleepText[1], "Enemy LOW\nfell asleep!",
+    "enemy sleep text wraps after the target")
   eq(low.sleepTurns, 1, "ordinary sleep accepts Crystal's minimum counter")
   low.mon.status = nil
   local high = mon("HIGH", false)

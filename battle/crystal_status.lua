@@ -111,7 +111,7 @@ function CrystalStatus.patchMoves(mod, crystalMoves)
 end
 
 local function statusMessage(target, status, toxic)
-  if status == "SLP" then return name(target) .. " fell asleep!" end
+  if status == "SLP" then return name(target) .. "\nfell asleep!" end
   if status == "PSN" then
     return toxic and (name(target) .. " was badly poisoned!")
       or (name(target) .. " was poisoned!")
