@@ -262,6 +262,10 @@ local function installGenderBridge()
   require("mods.CRYSTAL_251.battle.crystal_gender").installRuntime()
 end
 
+local function installTextWrapBridge()
+  require("mods.CRYSTAL_251.battle.crystal_text_wrap").installRuntime()
+end
+
 local installers = {
   installPokemonBridge,
   installWildBattleBridge,
@@ -277,6 +281,7 @@ local installers = {
   installProgressionBridge,
   installSummaryBridge,
   installGenderBridge,
+  installTextWrapBridge,
 }
 
 function Bridge.install()

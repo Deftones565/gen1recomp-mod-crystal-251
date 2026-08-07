@@ -44,8 +44,8 @@ ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.9.16"', 1, true) ~= nil,
-  "Android native ROM picker release has version 0.9.16")
+ok(manifestSource:find('"version": "0.9.18"', 1, true) ~= nil,
+  "Crystal development release has version 0.9.18")
 ok(mainSource:find("cacheFilesPresent", 1, true) ~= nil
    and mainSource:find("content.importFiles", 1, true) ~= nil,
   "loader rejects a cache whose generated Crystal files are missing")
