@@ -556,6 +556,75 @@ eq(modules.StadiumInstall.COUNT, 251,
   "installed bridge replaces the 151-model importer with Stadium 2's 251")
 eq(modules.StadiumRomPick.LABEL, "STADIUM 2 ROM",
   "DRAMATIC_SHAPE options identify the Stadium 2 cartridge")
+local savedRomPath = modules.StadiumInstall.romPath
+local savedBegin = modules.StadiumInstall.begin
+local savedCanDialog = modules.StadiumRomPick.canDialog
+local savedChoose = modules.StadiumRomPick.choose
+local pickerCalls = 0
+modules.StadiumInstall.romPath = function() return "auto-stadium2.z64" end
+modules.StadiumInstall.begin = function() return true end
+modules.StadiumRomPick.canDialog = function() return true end
+modules.StadiumRomPick.choose = function() pickerCalls = pickerCalls + 1 end
+local pickerGame = { stack={ push=function() end } }
+ok(modules.StadiumRomPick.import(pickerGame),
+  "Stadium 2 manual import accepts automatic discovery first")
+eq(pickerCalls, 0,
+  "Stadium 2 file picker is skipped when automatic discovery succeeds")
+modules.StadiumInstall.romPath = function() return nil end
+ok(not modules.StadiumRomPick.import(pickerGame),
+  "Stadium 2 manual import can fall through when no automatic ROM is found")
+eq(pickerCalls, 1,
+  "Stadium 2 file picker is the fallback after automatic discovery fails")
+
+local savedLove = _G.love
+local savedBeginFrom = modules.StadiumInstall.beginFrom
+local androidPicked = {}
+local androidPickCalls = 0
+local androidBegin
+_G.love = {
+  system = {
+    getOS = function() return "Android" end,
+    pickFile = function(kind)
+      androidPickCalls = androidPickCalls + 1
+      eq(kind, "rom", "Stadium 2 Android picker requests a ROM")
+      androidPicked[Bridge.ANDROID_PICKED] = "stadium2-rom-bytes"
+      return true
+    end,
+  },
+  filesystem = {
+    getInfo = function(path)
+      return androidPicked[path] and { type="file" } or nil
+    end,
+    read = function(path) return androidPicked[path] end,
+    remove = function(path) androidPicked[path] = nil; return true end,
+  },
+}
+modules.StadiumInstall.beginFrom = function(bytes, label)
+  androidBegin = { bytes=bytes, label=label }
+  return true
+end
+pickerCalls = 0
+ok(modules.StadiumRomPick.import(pickerGame),
+  "Stadium 2 opens Android's native picker when auto-detection fails")
+eq(androidPickCalls, 1,
+  "Stadium 2 invokes the Android native picker exactly once")
+eq(pickerCalls, 0,
+  "Android Stadium 2 import does not invoke a desktop picker")
+ok(modules.StadiumRomPick.poll(pickerGame),
+  "Stadium 2 consumes Android's picker handoff asynchronously")
+eq(androidBegin and androidBegin.bytes, "stadium2-rom-bytes",
+  "Stadium 2 passes Android-selected ROM bytes to its importer")
+eq(androidBegin and androidBegin.label, Bridge.ANDROID_PICKED,
+  "Stadium 2 identifies the Android picker handoff")
+ok(androidPicked[Bridge.ANDROID_PICKED] == nil,
+  "Stadium 2 removes the transient Android picker handoff")
+modules.StadiumInstall.beginFrom = savedBeginFrom
+_G.love = savedLove
+
+modules.StadiumInstall.romPath = savedRomPath
+modules.StadiumInstall.begin = savedBegin
+modules.StadiumRomPick.canDialog = savedCanDialog
+modules.StadiumRomPick.choose = savedChoose
 ok(type(modules.StadiumMon.setSpecies) == "function",
   "Stadium model selection is patched without changing DRAMATIC_SHAPE files")
 ok(type(modules.StadiumMon.attack) == "function",
@@ -632,11 +701,13 @@ local stadium1Header = "\128\055\018\064" .. string.rep("\0", 0x1C)
 local romFiles = {
   ["baseroms/baserom.z64"] = stadium1Header,
   ["baseroms/renamed_game.z64"] = z64Header,
+  ["Pokemon Stadium 2 (USA).z64"] = z64Header,
 }
 local missingPack = Bridge.SHINY_DIR .. "/125.dsm"
 _G.love = { filesystem = {
   getDirectoryItems = function(path)
     if path == "baseroms" then return { "baserom.z64", "renamed_game.z64" } end
+    if path == "" then return { "Pokemon Stadium 2 (USA).z64", "mods" } end
     return {}
   end,
   getInfo = function(path)
@@ -655,6 +726,45 @@ _G.love = { filesystem = {
 } }
 eq(modules.StadiumInstall.romPath(), "baseroms/renamed_game.z64",
   "automatic scan ignores Stadium 1 and selects a renamed Stadium 2 ROM")
+romFiles["baseroms/renamed_game.z64"] = nil
+eq(modules.StadiumInstall.romPath(), "Pokemon Stadium 2 (USA).z64",
+  "automatic Stadium 2 scan accepts an arbitrary filename beside the game")
+romFiles["Pokemon Stadium 2 (USA).z64"] = nil
+local realGetenv = os.getenv
+local realOpen = io.open
+local realHostShell = package.loaded["src.core.HostShell"]
+local appImageRom = "/games/Pokemon Stadium 2 (USA).z64"
+os.getenv = function(name)
+  if name == "APPIMAGE" then return "/games/gen1recomp-x86_64.AppImage" end
+  return realGetenv and realGetenv(name) or nil
+end
+io.open = function(path, mode)
+  if path == appImageRom then
+    return { read=function() return z64Header end, close=function() end }
+  end
+  return realOpen(path, mode)
+end
+package.loaded["src.core.HostShell"] = {
+  popen = function(command)
+    local value = command:find("/games", 1, true) and (appImageRom .. "\0") or ""
+    return { read=function() return value end, close=function() end }
+  end,
+}
+love.system = { getOS=function() return "Linux" end }
+love.filesystem.getSourceBaseDirectory = function() return "/tmp/.mount_gen1/usr/bin" end
+love.filesystem.getWorkingDirectory = function() return "/home/user" end
+eq(modules.StadiumInstall.romPath(), appImageRom,
+  "AppImage Stadium 2 auto-detection uses the directory containing the AppImage")
+ok(modules.StadiumInstall.romHint():find("/games", 1, true) ~= nil,
+  "AppImage Stadium 2 hint names the directory beside the AppImage")
+os.getenv = realGetenv
+io.open = realOpen
+package.loaded["src.core.HostShell"] = realHostShell
+love.system = nil
+love.filesystem.getSourceBaseDirectory = nil
+love.filesystem.getWorkingDirectory = nil
+romFiles["Pokemon Stadium 2 (USA).z64"] = z64Header
+romFiles["baseroms/renamed_game.z64"] = z64Header
 modules.StadiumInstall.forget()
 ok(not modules.StadiumInstall.ready(),
   "a missing Stadium 2 normal or shiny pack invalidates the cache")
@@ -708,8 +818,12 @@ ok(bridgeSource:find("cache missing or outdated; starting automatic", 1, true) ~
    and bridgeSource:find("Screen.new(Game, true)", 1, true) ~= nil,
   "automatic Stadium 2 import starts directly before its progress screen")
 ok(bridgeSource:find("function Install.romPath()", 1, true) ~= nil
-   and bridgeSource:find("n64Title(header)", 1, true) ~= nil,
-  "baseroms auto-detection identifies Stadium 2 by its N64 header")
+   and bridgeSource:find("n64Title(header)", 1, true) ~= nil
+   and bridgeSource:find("getSourceBaseDirectory", 1, true) ~= nil
+   and bridgeSource:find('os.getenv("APPIMAGE")', 1, true) ~= nil
+   and bridgeSource:find("getWorkingDirectory", 1, true) ~= nil
+   and bridgeSource:find('addDirectory("", "")', 1, true) ~= nil,
+  "Stadium 2 auto-detection covers packaged desktop and source layouts")
 ok(bridgeSource:find("errorSamples", 1, true) ~= nil
    and bridgeSource:find("Rejected model samples", 1, true) ~= nil,
   "failed Stadium 2 scans retain the underlying parser errors")

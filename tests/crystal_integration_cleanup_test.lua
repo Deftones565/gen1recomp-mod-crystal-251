@@ -44,8 +44,8 @@ ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.9.15"', 1, true) ~= nil,
-  "high-refresh Stadium 2 skinning limiter has version 0.9.15")
+ok(manifestSource:find('"version": "0.9.16"', 1, true) ~= nil,
+  "Android native ROM picker release has version 0.9.16")
 ok(mainSource:find("cacheFilesPresent", 1, true) ~= nil
    and mainSource:find("content.importFiles", 1, true) ~= nil,
   "loader rejects a cache whose generated Crystal files are missing")
@@ -55,8 +55,10 @@ ok(mainSource:find("Crystal251AutoImport", 1, true) ~= nil
 ok(mainSource:find('label = "CRYSTAL ROM"', 1, true) ~= nil,
   "OPTIONS exposes the manual Crystal ROM importer")
 ok(importSource:find('Screen.ROM_DIR = "baseroms"', 1, true) ~= nil
-   and importSource:find("function Screen.findRom()", 1, true) ~= nil,
-  "Crystal auto-import scans the shared baseroms folder")
+   and importSource:find("function Screen.findRom()", 1, true) ~= nil
+   and importSource:find("getSourceBaseDirectory", 1, true) ~= nil
+   and importSource:find('addDirectory("", "")', 1, true) ~= nil,
+  "Crystal auto-import scans baseroms and beside the game")
 ok(importSource:find("content.importFiles = importedFiles", 1, true) ~= nil,
   "Crystal cache records every generated sprite and cry")
 ok(importSource:find('local ERROR_LOG = "crystal_251/import_error.log"', 1, true) ~= nil
@@ -64,6 +66,12 @@ ok(importSource:find('local ERROR_LOG = "crystal_251/import_error.log"', 1, true
   "Crystal import writes the exact failure to terminal and a persistent log")
 ok(importSource:find("traceback(worker, err)", 1, true) ~= nil,
   "Crystal coroutine failures retain a traceback and failing stage")
+ok(importSource:find('Screen.PICKED = "picked_rom.gb"', 1, true) ~= nil
+   and importSource:find('love.system.pickFile, "rom"', 1, true) ~= nil,
+  "Crystal Android import uses Gen1Recomp's native ROM picker handoff")
+ok(stadium2Source:find('Bridge.ANDROID_PICKED = "picked_rom.gb"', 1, true) ~= nil
+   and stadium2Source:find('love.system.pickFile, "rom"', 1, true) ~= nil,
+  "Stadium 2 Android import uses the native ROM picker handoff")
 ok(stadium2Source:find("Bridge.ERROR_LOG", 1, true) ~= nil
    and stadium2Source:find("writeStadiumFailure", 1, true) ~= nil,
   "Stadium 2 import writes detailed failure diagnostics")

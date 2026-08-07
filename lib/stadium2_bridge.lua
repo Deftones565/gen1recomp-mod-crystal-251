@@ -15,6 +15,7 @@ Bridge.SHINY_DIR = Bridge.ROOT_DIR .. "/shiny"
 Bridge.MARKER = Bridge.ROOT_DIR .. "/pack.info"
 Bridge.ERROR_LOG = Bridge.ROOT_DIR .. "/import_error.log"
 Bridge.PICKED = "picked_stadium2.z64"
+Bridge.ANDROID_PICKED = "picked_rom.gb"
 
 local ASSET_START = 0x437610
 -- The supported US Stadium 2 ROM has two authoritative Pokemon asset tables.
@@ -1846,6 +1847,118 @@ local function patchInstall(V, Pack)
     Bridge.ROM_DIR .. "/pokemonstadium2.z64",
     Bridge.ROM_DIR .. "/stadium2.z64",
   }
+  local externalRomPath = nil
+
+  local function sourceBaseDirectory()
+    local fs = filesystem()
+    if not (fs and fs.getSourceBaseDirectory) then return nil end
+    local ok, base = pcall(fs.getSourceBaseDirectory)
+    return ok and type(base) == "string" and base ~= "" and base or nil
+  end
+
+  local function cleanDirectory(path)
+    if type(path) ~= "string" then return nil end
+    path = path:gsub("^%s+", ""):gsub("%s+$", ""):gsub("[/\\]+$", "")
+    return path ~= "" and path or nil
+  end
+
+  local function parentDirectory(path)
+    path = cleanDirectory(path)
+    return path and cleanDirectory(path:match("^(.*)[/\\][^/\\]+$")) or nil
+  end
+
+  local function macBundleParent(path)
+    path = cleanDirectory(path)
+    if not path then return nil end
+    local normalized = path:gsub("\\", "/")
+    return cleanDirectory(normalized:match("^(.*)/[^/]+%.app/")
+      or normalized:match("^(.*)/[^/]+%.app$"))
+  end
+
+  local function hostDirectories()
+    local fs = filesystem()
+    local platform = love and love.system and love.system.getOS
+      and love.system.getOS() or nil
+    if platform == "Android" or platform == "iOS" then return {} end
+    local dirs, seen = {}, {}
+    local function add(path)
+      path = cleanDirectory(path)
+      if path and not seen[path] then
+        seen[path] = true
+        dirs[#dirs + 1] = path
+      end
+    end
+    if platform == "Linux" and os and os.getenv then
+      add(parentDirectory(os.getenv("APPIMAGE")))
+    end
+    if platform == "OS X" then
+      add(macBundleParent(sourceBaseDirectory()))
+      if type(arg) == "table" then add(macBundleParent(arg[0])) end
+    end
+    add(sourceBaseDirectory())
+    if type(arg) == "table" then add(parentDirectory(arg[0])) end
+    if fs and fs.getWorkingDirectory then
+      local ok, cwd = pcall(fs.getWorkingDirectory)
+      if ok then add(cwd) end
+    end
+    return dirs
+  end
+
+  local function autoCommandOutput(command)
+    local okHost, HostShell = pcall(require, "src.core.HostShell")
+    local pipe
+    if okHost and HostShell and type(HostShell.popen) == "function" then
+      pipe = HostShell.popen(command, "r")
+    elseif io and io.popen then
+      local ok, opened = pcall(io.popen, command, "r")
+      pipe = ok and opened or nil
+    end
+    if not pipe then return nil end
+    local okRead, output = pcall(pipe.read, pipe, "*a")
+    pcall(pipe.close, pipe)
+    return okRead and type(output) == "string" and output or nil
+  end
+
+  local function externalCandidatePaths()
+    local platform = love and love.system and love.system.getOS
+      and love.system.getOS() or nil
+    if platform ~= "Windows" and platform ~= "Linux" and platform ~= "OS X" then
+      return {}
+    end
+    if platform == "Windows" and os and os.getenv
+        and os.getenv("APPX_PACKAGE_FAMILY_NAME") then
+      return {}
+    end
+    local paths, seen = {}, {}
+    local function append(path)
+      if path ~= "" and not seen[path] then
+        seen[path] = true
+        paths[#paths + 1] = path
+      end
+    end
+    for _, base in ipairs(hostDirectories()) do
+      local output
+      local found = {}
+      if platform == "Windows" then
+        local quoted = base:gsub("'", "''")
+        output = autoCommandOutput("powershell -NoProfile -Command \"$p='" .. quoted
+          .. "'; Get-ChildItem -LiteralPath $p -File | Where-Object { @('.z64','.n64','.v64') -contains $_.Extension.ToLowerInvariant() } | ForEach-Object {$_.FullName}\"")
+        for path in tostring(output or ""):gmatch("[^\r\n]+") do
+          found[#found + 1] = path
+        end
+      else
+        local quoted = "'" .. base:gsub("'", "'\\''") .. "'"
+        output = autoCommandOutput("find " .. quoted
+          .. " -maxdepth 1 -type f \\( -iname '*.z64' -o -iname '*.n64' -o -iname '*.v64' \\) -print0 2>/dev/null")
+        for path in tostring(output or ""):gmatch("([^%z]+)%z") do
+          found[#found + 1] = path
+        end
+      end
+      table.sort(found)
+      for _, path in ipairs(found) do append(path) end
+    end
+    return paths
+  end
 
   local function candidatePaths()
     local fs = filesystem()
@@ -1857,16 +1970,19 @@ local function patchInstall(V, Pack)
         paths[#paths + 1] = path
       end
     end
-    for _, path in ipairs(preferred) do add(path) end
-    local ok, items = pcall(fs.getDirectoryItems, Bridge.ROM_DIR)
-    if ok and items then
+    local function addDirectory(path, prefix)
+      local ok, items = pcall(fs.getDirectoryItems, path)
+      if not (ok and items) then return end
       table.sort(items)
       for _, name in ipairs(items) do
         if name:lower():match("%.[nvz]64$") then
-          add(Bridge.ROM_DIR .. "/" .. name)
+          add(prefix .. name)
         end
       end
     end
+    for _, path in ipairs(preferred) do add(path) end
+    addDirectory(Bridge.ROM_DIR, Bridge.ROM_DIR .. "/")
+    addDirectory("", "")
     return paths
   end
 
@@ -1878,9 +1994,26 @@ local function patchInstall(V, Pack)
     return n64Title(header):upper():find("POKEMON STADIUM 2", 1, true) ~= nil
   end
 
+  local function externalStadium2Path(path)
+    if not (io and io.open) then return false end
+    local ok, file = pcall(io.open, path, "rb")
+    if not (ok and file) then return false end
+    local okRead, header = pcall(file.read, file, 0x40)
+    pcall(file.close, file)
+    if not (okRead and type(header) == "string") then return false end
+    return n64Title(header):upper():find("POKEMON STADIUM 2", 1, true) ~= nil
+  end
+
   function Install.romPath()
+    externalRomPath = nil
     for _, path in ipairs(candidatePaths()) do
       if stadium2Path(path) then return path end
+    end
+    for _, path in ipairs(externalCandidatePaths()) do
+      if externalStadium2Path(path) then
+        externalRomPath = path
+        return path
+      end
     end
     return nil
   end
@@ -1891,14 +2024,17 @@ local function patchInstall(V, Pack)
 
   function Install.romHint()
     local fs = filesystem()
-    local base = fs and fs.getSaveDirectory
+    local save = fs and fs.getSaveDirectory
       and select(2, pcall(fs.getSaveDirectory)) or nil
-    if type(base) ~= "string" then base = "the game folder" end
-    return base .. "/" .. Bridge.ROM_DIR
+    local dirs = hostDirectories()
+    local base = dirs[1]
+    local fallback = type(save) == "string" and save .. "/" .. Bridge.ROM_DIR
+      or "the game folder/" .. Bridge.ROM_DIR
+    return base and base .. " OR " .. fallback or fallback
   end
 
   function Install.romHintFile()
-    return Install.romHint() .. "/pokemon_stadium_2.z64"
+    return Install.romHint()
   end
 
   local function readMarker()
@@ -1967,9 +2103,21 @@ local function patchInstall(V, Pack)
     local path = Install.romPath()
     if not path then
       return fail("finding Stadium 2 ROM",
-        "no Pokemon Stadium 2 ROM in " .. Bridge.ROM_DIR)
+        "no Pokemon Stadium 2 ROM beside the game or in " .. Bridge.ROM_DIR)
     end
-    local ok, bytes = pcall(fs.read, path)
+    local ok, bytes
+    if externalRomPath == path then
+      local file
+      ok, file = pcall(io.open, path, "rb")
+      if ok and file then
+        ok, bytes = pcall(file.read, file, "*a")
+        pcall(file.close, file)
+      else
+        bytes = file
+      end
+    else
+      ok, bytes = pcall(fs.read, path)
+    end
     if not ok then
       return fail("reading Stadium 2 ROM", bytes, "ROM: " .. tostring(path))
     end
@@ -2234,6 +2382,25 @@ local function patchPicker(V, Install)
     return ok and name or nil
   end
 
+  local androidPickPending = false
+  local androidPickGame = nil
+
+  local function canAndroidPick()
+    return osName() == "Android" and love and love.system
+      and type(love.system.pickFile) == "function"
+  end
+
+  local function beginAndroidPick(game)
+    if not canAndroidPick() then return false end
+    local fs = filesystem()
+    if fs and fs.remove then pcall(fs.remove, Bridge.ANDROID_PICKED) end
+    local ok, opened = pcall(love.system.pickFile, "rom")
+    if not (ok and opened) then return false end
+    androidPickPending = true
+    androidPickGame = game or true
+    return true
+  end
+
   -- Host tools launched from an AppImage must not inherit the bundled
   -- LD_LIBRARY_PATH. Otherwise system kdialog/zenity can load the AppImage's
   -- incompatible Qt/GTK libraries, exit before drawing a window, and look
@@ -2284,7 +2451,7 @@ local function patchPicker(V, Install)
   end
 
   function Picker.canDialog()
-    return haveFiles() and backend() ~= nil
+    return canAndroidPick() or (haveFiles() and backend() ~= nil)
   end
   Picker.available = Picker.canDialog
 
@@ -2334,6 +2501,23 @@ local function patchPicker(V, Install)
 
   function Picker.import(game)
     if Install.status.state == "building" then return false end
+    local automatic = Install.romPath()
+    if automatic then
+      local started, beginErr = Install.begin()
+      if not started then
+        if Install.status.state ~= "failed" then
+          Install.fail("starting automatic Stadium 2 import", beginErr,
+            "ROM: " .. tostring(automatic))
+        end
+        if game and game.stack then game.stack:push(Screen.new(game, true)) end
+        return false
+      end
+      if game and game.stack then game.stack:push(Screen.new(game, true)) end
+      return true
+    end
+    if beginAndroidPick(game) then
+      return true
+    end
     if not Picker.canDialog() then
       if V.mod and V.mod.log then
         V.mod.log:warn("stadium2: no file-dialog backend; install kdialog, "
@@ -2423,6 +2607,35 @@ local function patchPicker(V, Install)
         Install.fail("opening Stadium 2 importer", result)
         if target and target.stack then target.stack:push(Screen.new(target, true)) end
       end
+      return true
+    end
+
+    if androidPickPending then
+      local fs = filesystem()
+      if not (fs and fs.getInfo and fs.read) or Install.status.state == "building" then
+        return false
+      end
+      local okInfo, info = pcall(fs.getInfo, Bridge.ANDROID_PICKED, "file")
+      if not (okInfo and info) then return false end
+      local okRead, bytes = pcall(fs.read, Bridge.ANDROID_PICKED)
+      if fs.remove then pcall(fs.remove, Bridge.ANDROID_PICKED) end
+      local target = androidPickGame == true and game or androidPickGame
+      androidPickPending = false
+      androidPickGame = nil
+      if not okRead then
+        Install.fail("reading Android Stadium 2 ROM", bytes,
+          "File: " .. Bridge.ANDROID_PICKED)
+      elseif type(bytes) ~= "string" then
+        Install.fail("reading Android Stadium 2 ROM", "selected file contained no ROM bytes",
+          "File: " .. Bridge.ANDROID_PICKED)
+      else
+        local started, err = Install.beginFrom(bytes, Bridge.ANDROID_PICKED)
+        if not started and Install.status.state ~= "failed" then
+          Install.fail("starting Android Stadium 2 import", err,
+            "File: " .. Bridge.ANDROID_PICKED)
+        end
+      end
+      if target and target.stack then target.stack:push(Screen.new(target, true)) end
       return true
     end
 

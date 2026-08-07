@@ -7,6 +7,7 @@ local GENERATED = "crystal_251/generated"
 local ERROR_LOG = "crystal_251/import_error.log"
 
 Screen.ROM_DIR = "baseroms"
+Screen.PICKED = "picked_rom.gb"
 
 local PREFERRED_ROMS = {
   Screen.ROM_DIR .. "/pokemon_crystal.gbc",
@@ -118,12 +119,126 @@ local function isFile(path)
   return ok and info and true or false
 end
 
+local function commandOutput(command)
+  local pipe
+  local okHost, HostShell = pcall(require, "src.core.HostShell")
+  if okHost and HostShell and type(HostShell.popen) == "function" then
+    pipe = HostShell.popen(command, "r")
+  elseif io and io.popen then
+    local ok, opened = pcall(io.popen, command, "r")
+    pipe = ok and opened or nil
+  end
+  if not pipe then return nil end
+  local okRead, value = pcall(pipe.read, pipe, "*a")
+  pcall(pipe.close, pipe)
+  if not okRead then return nil end
+  value = value and value:gsub("^%s+", ""):gsub("%s+$", "")
+  return value ~= "" and value or nil
+end
+
+local function sourceBaseDirectory()
+  local fs = love and love.filesystem
+  if not (fs and fs.getSourceBaseDirectory) then return nil end
+  local ok, base = pcall(fs.getSourceBaseDirectory)
+  return ok and type(base) == "string" and base ~= "" and base or nil
+end
+
+local function cleanDirectory(path)
+  if type(path) ~= "string" then return nil end
+  path = path:gsub("^%s+", ""):gsub("%s+$", ""):gsub("[/\\]+$", "")
+  return path ~= "" and path or nil
+end
+
+local function parentDirectory(path)
+  path = cleanDirectory(path)
+  return path and cleanDirectory(path:match("^(.*)[/\\][^/\\]+$")) or nil
+end
+
+local function macBundleParent(path)
+  path = cleanDirectory(path)
+  if not path then return nil end
+  local normalized = path:gsub("\\", "/")
+  return cleanDirectory(normalized:match("^(.*)/[^/]+%.app/")
+    or normalized:match("^(.*)/[^/]+%.app$"))
+end
+
+local function hostDirectories()
+  local fs = love and love.filesystem
+  local osName = love and love.system and love.system.getOS and love.system.getOS() or nil
+  if osName == "Android" or osName == "iOS" then return {} end
+  local dirs, seen = {}, {}
+  local function add(path)
+    path = cleanDirectory(path)
+    if path and not seen[path] then
+      seen[path] = true
+      dirs[#dirs + 1] = path
+    end
+  end
+  if osName == "Linux" and os and os.getenv then
+    add(parentDirectory(os.getenv("APPIMAGE")))
+  end
+  if osName == "OS X" then
+    add(macBundleParent(sourceBaseDirectory()))
+    if type(arg) == "table" then add(macBundleParent(arg[0])) end
+  end
+  add(sourceBaseDirectory())
+  if type(arg) == "table" then add(parentDirectory(arg[0])) end
+  if fs and fs.getWorkingDirectory then
+    local ok, cwd = pcall(fs.getWorkingDirectory)
+    if ok then add(cwd) end
+  end
+  return dirs
+end
+
+local function externalRomPaths()
+  local osName = love and love.system and love.system.getOS and love.system.getOS() or nil
+  if osName ~= "Windows" and osName ~= "Linux" and osName ~= "OS X" then
+    return {}
+  end
+  if osName == "Windows" and os and os.getenv
+      and os.getenv("APPX_PACKAGE_FAMILY_NAME") then
+    return {}
+  end
+  local paths, seen = {}, {}
+  local function append(path)
+    if path ~= "" and not seen[path] then
+      seen[path] = true
+      paths[#paths + 1] = path
+    end
+  end
+  for _, base in ipairs(hostDirectories()) do
+    local output
+    local found = {}
+    if osName == "Windows" then
+      local quoted = base:gsub("'", "''")
+      output = commandOutput("powershell -NoProfile -Command \"$p='" .. quoted
+        .. "'; Get-ChildItem -LiteralPath $p -File | Where-Object {$_.Extension -ieq '.gbc'} | ForEach-Object {$_.FullName}\"")
+      for path in tostring(output or ""):gmatch("[^\r\n]+") do
+        found[#found + 1] = path
+      end
+    else
+      local quoted = "'" .. base:gsub("'", "'\\''") .. "'"
+      output = commandOutput("find " .. quoted
+        .. " -maxdepth 1 -type f -iname '*.gbc' -print0 2>/dev/null")
+      for path in tostring(output or ""):gmatch("([^%z]+)%z") do
+        found[#found + 1] = path
+      end
+    end
+    table.sort(found)
+    for _, path in ipairs(found) do append(path) end
+  end
+  return paths
+end
+
 function Screen.romHint()
   local fs = love and love.filesystem
-  local base = fs and fs.getSaveDirectory
+  local save = fs and fs.getSaveDirectory
     and select(2, pcall(fs.getSaveDirectory)) or nil
-  if type(base) ~= "string" then base = "the game folder" end
-  return base .. "/" .. Screen.ROM_DIR
+  local dirs = hostDirectories()
+  local base = dirs[1]
+  local fallback = type(save) == "string" and save .. "/" .. Screen.ROM_DIR
+    or "the game folder/" .. Screen.ROM_DIR
+  return base and base .. " OR " .. fallback or fallback
 end
 
 function Screen.findRom()
@@ -137,22 +252,35 @@ function Screen.findRom()
       candidates[#candidates + 1] = path
     end
   end
-  for _, path in ipairs(PREFERRED_ROMS) do add(path) end
-  local ok, items = pcall(fs.getDirectoryItems, Screen.ROM_DIR)
-  if ok and items then
+  local function addDirectory(path, prefix)
+    local ok, items = pcall(fs.getDirectoryItems, path)
+    if not (ok and items) then return end
     table.sort(items)
     for _, name in ipairs(items) do
       if name:lower():match("%.gbc$") then
-        add(Screen.ROM_DIR .. "/" .. name)
+        add(prefix .. name)
       end
     end
   end
+  for _, path in ipairs(PREFERRED_ROMS) do add(path) end
+  addDirectory(Screen.ROM_DIR, Screen.ROM_DIR .. "/")
+  addDirectory("", "")
   for _, path in ipairs(candidates) do
     local okRead, raw = pcall(fs.read, path)
     local found = okRead and identify(raw) or nil
     if found then
       found.path = path
       found.name = path:match("[^/]+$") or path
+      cachedAutoRom = found
+      return found
+    end
+  end
+  for _, path in ipairs(externalRomPaths()) do
+    local raw = readExternal(path)
+    local found = identify(raw)
+    if found then
+      found.path = path
+      found.name = path:match("[^/\\]+$") or path
       cachedAutoRom = found
       return found
     end
@@ -164,14 +292,46 @@ function Screen.romPresent()
   return Screen.findRom() ~= nil
 end
 
-local function commandOutput(command)
-  local HostShell = require("src.core.HostShell")
-  local pipe = HostShell.popen(command)
-  if not pipe then return nil end
-  local value = pipe:read("*a")
-  pipe:close()
-  value = value and value:gsub("^%s+", ""):gsub("%s+$", "")
-  return value ~= "" and value or nil
+local function androidPickerAvailable()
+  return love and love.system and love.system.getOS
+    and love.system.getOS() == "Android"
+    and type(love.system.pickFile) == "function"
+end
+
+function Screen:beginAndroidPick()
+  if not androidPickerAvailable() then return false end
+  local fs = love and love.filesystem
+  if fs and fs.remove then pcall(fs.remove, Screen.PICKED) end
+  local ok, opened = pcall(love.system.pickFile, "rom")
+  if not (ok and opened) then return false end
+  self.androidPickPending = true
+  self.status = "CHOOSE CRYSTAL ROM"
+  self.detail = "SELECT ROM IN ANDROID"
+  return true
+end
+
+function Screen:pollAndroidPick()
+  if not self.androidPickPending then return false end
+  local fs = love and love.filesystem
+  if not (fs and fs.getInfo and fs.read) then return false end
+  local okInfo, info = pcall(fs.getInfo, Screen.PICKED, "file")
+  if not (okInfo and info) then return false end
+  local okRead, raw = pcall(fs.read, Screen.PICKED)
+  if fs.remove then pcall(fs.remove, Screen.PICKED) end
+  self.androidPickPending = false
+  if not okRead or type(raw) ~= "string" then
+    self:fail("reading Android Crystal ROM", raw or "could not read selected ROM",
+      "File: " .. Screen.PICKED)
+    return true
+  end
+  local found = identify(raw)
+  if not found then
+    self:fail("validating Android Crystal ROM", "selected file is not a supported Pokemon Crystal ROM",
+      "File: " .. Screen.PICKED)
+    return true
+  end
+  self:start(raw, Screen.PICKED, found)
+  return true
 end
 
 local function choosePath()
@@ -400,6 +560,12 @@ function Screen:start(raw, displayName, identified)
 end
 
 function Screen:choose()
+  local found = Screen.findRom()
+  if found then
+    self:start(found.raw, found.name, found)
+    return
+  end
+  if self:beginAndroidPick() then return end
   local path = choosePath()
   if path then
     local raw, err = readExternal(path)
@@ -411,16 +577,12 @@ function Screen:choose()
     self:start(raw, path:match("[^/\\]+$") or path)
     return
   end
-  local found = Screen.findRom()
-  if found then
-    self:start(found.raw, found.name, found)
-    return
-  end
-  self.status = "NO FILE PICKER AVAILABLE"
+  self.status = "CRYSTAL ROM NOT FOUND"
   self.detail = "PUT CRYSTAL ROM IN " .. Screen.romHint()
 end
 
 function Screen:update(dt)
+  if self:pollAndroidPick() then return end
   if self.worker and coroutine.status(self.worker) ~= "dead" then
     local ok, err = coroutine.resume(self.worker)
     if not ok then

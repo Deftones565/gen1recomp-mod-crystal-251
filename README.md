@@ -10,8 +10,15 @@ assets are included in this mod.
 1. Copy the `CRYSTAL_251` folder into the game's `mods` folder.
 2. Enable **Crystal 251** in the launcher and start the game.
 3. Choose **IMPORT CRYSTAL** on the title screen.
-4. Select a supported Pokemon Crystal ROM. If a file picker is unavailable,
-   place the `.gbc` file beside the game and try again.
+4. Crystal 251 first looks beside the desktop game executable/app and in
+   `baseroms/`. Linux AppImage, Linux portable/ARM, Windows, macOS, and source
+   launches are handled separately so the physical game folder is used rather
+   than an AppImage mount or app-bundle interior. On Android, iOS, and Xbox,
+   sandboxed package storage is not treated as a sibling-ROM folder. If no
+   supported ROM is found automatically, Android opens its native system file
+   picker and desktop builds use their supported picker; `baseroms/` remains
+   available everywhere the platform exposes writable game storage. The filename does not matter;
+   supported ROMs are identified by SHA-1.
 5. Let the import finish, then restart when prompted.
 
 When an update changes the generated-asset format, **IMPORT CRYSTAL** appears
@@ -78,19 +85,23 @@ archive offsets, file indexes, and retained parser errors.
   also enabled, both owned mods coordinate through one live bridge: Shiny
   Indicators supplies the 1–151 base path and Crystal 251 upgrades it to 251
   without wrapping Dramatic Shape twice or adding duplicate options rows. Put
-  any correctly dumped Pokemon Stadium 2 (US) ROM in `baseroms/`; the model
-  build starts automatically when its cache is absent or incomplete, and
-  OPTIONS -> STADIUM 2 ROM opens the manual importer. A 251 cache satisfies the
+  any correctly dumped Pokemon Stadium 2 (US) ROM beside the desktop game or
+  in `baseroms/`; the filename can be anything ending in `.z64`, `.n64`, or `.v64`.
+  The model build starts automatically when its cache is absent or incomplete.
+  OPTIONS -> STADIUM 2 ROM also checks the automatic locations first, then opens
+  the native Android system picker or the desktop file picker only when no
+  supported ROM is found. A 251 cache satisfies the
   151-only setup; enabling Crystal 251 upgrades a 151 cache. Normal and
   Crystal-DV shiny packs are generated separately. Stadium 2 display-list
   groups that intentionally have no texture are retained with a generated
   Crystal-palette material instead of being discarded. Neither the engine nor
   Dramatic Shape is modified, and Stadium 1 packs are ignored while the shared
   bridge is active.
-- Put a supported Pokemon Crystal ROM in `baseroms/` and Crystal 251 imports it
-  automatically when `content.json` is missing, its schema is obsolete, or any
-  generated sprite/cry file recorded by the cache is missing. The same import is
-  available manually from OPTIONS -> CRYSTAL ROM and the title menu.
+- Put a supported Pokemon Crystal ROM beside the desktop game or in `baseroms/` and
+  Crystal 251 imports it automatically when `content.json` is missing, its
+  schema is obsolete, or any generated sprite/cry file recorded by the cache is
+  missing. The `.gbc` filename can be anything; the ROM is matched by SHA-1. The
+  same import is available manually from OPTIONS -> CRYSTAL ROM and the title menu.
 - Uses stable DV-derived Unown letters. Forms survive saving and link transfer.
 - Uses Crystal shiny colors in SGB and Advanced color modes.
 - Mattes the sprites' boundary-connected color-0 background to transparency,
