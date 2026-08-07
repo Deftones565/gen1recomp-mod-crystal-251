@@ -26,8 +26,8 @@ local Bridge = require("mods.CRYSTAL_251.lib.stadium2_bridge")
 local T = Bridge._test
 
 eq(Bridge.COUNT, 251, "Stadium 2 bridge covers the full Crystal dex")
-eq(Bridge.FORMAT, "C2DSM8",
-  "Stadium 2 cache invalidates pose records packed before the footer-header fix")
+eq(Bridge.FORMAT, "C2DSM10",
+  "Stadium 2 cache invalidates one-frame synthetic faint packs")
 eq(Bridge.US_MD5, "1561c75d11cedf356a8ddb1a4a5f9d5d",
   "Stadium 2 importer identifies the supported US ROM")
 -- Keep the title exactly twenty bytes, matching the N64 header field.
@@ -155,8 +155,13 @@ local rows, contexts = T.genericAnimationTable(fakeAnimations, fakeBuild)
 eq(#rows, 165, "all move ids receive a safe Stadium 2 animation mapping")
 eq(contexts[1], 0, "first Stadium 2 animation is the idle context")
 eq(contexts[2], 1, "second Stadium 2 animation is the default attack")
-eq(contexts[3], 2, "third Stadium 2 animation is the faint context")
+eq(contexts[3], 2, "safe third Stadium 2 bank remains the real faint context")
+eq(contexts[13], 2, "alternate faint context keeps the real faint animation")
 eq(contexts[4], 3, "fourth Stadium 2 animation is the entrance context")
+eq(fakeAnimations.anims[3].name, "faint",
+  "third decoded Stadium 2 bank keeps its faint role when pose data is sane")
+ok(not fakeAnimations.stadium2FaintRejected,
+  "faint bank is not rejected without evidence of an explosive pose")
 
 local geometryOnly = { anims = {} }
 local staticRows, staticContexts = T.genericAnimationTable(geometryOnly, fakeBuild)
@@ -170,6 +175,79 @@ eq(staticRows[1][1], 0,
   "moves safely resolve to the bind-pose fallback")
 eq(staticContexts[1], 0,
   "idle context resolves to the bind-pose fallback")
+eq(staticContexts[3], 0,
+  "geometry-only faint context falls back to the only available pose")
+
+-- The faint guard distinguishes legitimate whole-body travel from an actual
+-- skeleton explosion. Translation shared by every bone must not be rejected;
+-- one bone separating or scaling many times beyond the bind skeleton must.
+local poseBuild = {}
+function poseBuild.animSample(bones, animation, frame)
+  return function(index)
+    local row = animation.framesData and animation.framesData[frame + 1]
+    local x = row and row[index] or bones[index].x or 0
+    local scale = row and row.scale and row.scale[index] or 1
+    return { x, 0, 0 }, { 0, 0, 0 }, { scale, scale, scale }
+  end
+end
+function poseBuild.bindMatrices(bones, sample)
+  local out = {}
+  for index, bone in ipairs(bones) do
+    local t, _, scale
+    if sample then
+      t, _, scale = sample(index)
+    else
+      t, scale = { bone.x or 0, 0, 0 }, { 1, 1, 1 }
+    end
+    out[index] = {
+      { scale[1], 0, 0, t[1] },
+      { 0, scale[2], 0, t[2] },
+      { 0, 0, scale[3], t[3] },
+    }
+  end
+  return out
+end
+local poseData = { bones={ {x=0}, {x=1} } }
+local travellingFaint = {
+  frames=2,
+  framesData={ { [1]=0, [2]=1 }, { [1]=100, [2]=101 } },
+}
+ok(not T.animationLooksExplosive(poseData, travellingFaint, poseBuild),
+  "whole-body faint travel does not look like a skeleton explosion")
+local separatedFaint = {
+  frames=2,
+  framesData={ { [1]=0, [2]=1 }, { [1]=0, [2]=20 } },
+}
+ok(T.animationLooksExplosive(poseData, separatedFaint, poseBuild),
+  "a faint that separates bones eightfold is rejected")
+local scaledFaint = {
+  frames=2,
+  framesData={
+    { [1]=0, [2]=1, scale={ [1]=1, [2]=1 } },
+    { [1]=0, [2]=1, scale={ [1]=1, [2]=12 } },
+  },
+}
+ok(T.animationLooksExplosive(poseData, scaledFaint, poseBuild),
+  "a faint with pathological accumulated bone scale is rejected")
+
+local rejectedAnimations = {
+  bones=poseData.bones,
+  anims={
+    { frames=2, framesData=travellingFaint.framesData },
+    {},
+    separatedFaint,
+    {},
+  },
+}
+local rejectedBuild = { CONTEXTS=fakeBuild.CONTEXTS,
+  bindMatrices=poseBuild.bindMatrices, animSample=poseBuild.animSample }
+local _, rejectedContexts = T.genericAnimationTable(rejectedAnimations, rejectedBuild)
+eq(rejectedContexts[3], 0,
+  "only an actually explosive faint falls back to the stable idle bank")
+ok(rejectedAnimations.stadium2FaintRejected,
+  "rejected faint is recorded in Stadium 2 pack diagnostics")
+eq(rejectedAnimations.anims[3].name, "faint_rejected",
+  "rejected faint bank remains identifiable for diagnostics")
 
 local untextured = {
   bones = { { parent=-1 } },
@@ -224,7 +302,16 @@ local modules = {
     forget = function() end,
     invalidate = function() end,
   },
-  Stadium = { update = function() return "updated" end },
+  Stadium = {
+    update = function(_, battle)
+      if battle and battle.testMon then
+        battle.testMon:setSpecies(battle.testDex)
+        battle._stadiumSawSendingOut = battle.sendingOut
+        battle._stadiumSawEnemySendingOut = battle.enemySendingOut
+      end
+      return "updated"
+    end,
+  },
   StadiumMon = {
     FPS = 30,
     play = function(self, state, animIndex, auxIndex)
@@ -234,6 +321,27 @@ local modules = {
       self.time = 0
       return true
     end,
+    request = function(self, state, animIndex, auxIndex)
+      self.baseRequestCalls = (self.baseRequestCalls or 0) + 1
+      return self:play(state, animIndex, auxIndex)
+    end,
+    beginGrow = function(self)
+      if self.grow then return false end
+      self.grow = 0
+      self.grewOwn = true
+      self.beginGrowCalls = (self.beginGrowCalls or 0) + 1
+      return true
+    end,
+    update = function(self, dt)
+      self.baseUpdateCalls = (self.baseUpdateCalls or 0) + 1
+      self.baseUpdateDt = dt
+      return true
+    end,
+    finished = function(self) return self.done and true or false end,
+    matrix = function(self, x, y, z)
+      return { x=x, y=y, z=z, scale=self.scale }
+    end,
+    worldHeight = function() return 10 end,
     build = function(self)
       self.baseBuildCalls = (self.baseBuildCalls or 0) + 1
       self.baseBuildDt = self.dt
@@ -550,8 +658,256 @@ local fakeCrystalMod = { log=fakeLog }
 local cache = { species = {
   { dex=1, paletteColors=normal, shinyPaletteColors=shiny },
 } }
+
+-- Gen1Recomp's trainer AI switch path omits the normal enemy replacement
+-- grow. Crystal supplies ONLY the engine's 12-frame grow state for both staged
+-- modes. Stadium's skeletal entrance is then requested directly on the actual
+-- incoming rig, rather than going through the globally wrapped startGrowIn
+-- seam and risking contamination of later model/move animations.
+local savedBattleStateModule = package.loaded["src.battle.BattleState"]
+local fakeBattleState = {}
+function fakeBattleState:sayNext(text)
+  self.queue[#self.queue + 1] = { text=text }
+end
+function fakeBattleState:actNext(fn)
+  self.queue[#self.queue + 1] = { fn=fn }
+end
+function fakeBattleState:startGrowIn(battler)
+  self.growCalls = (self.growCalls or 0) + 1
+  self.grownBattler = battler
+end
+function fakeBattleState:executeAction(_, _, action)
+  if action and action.special == "aiSwitch" then
+    self.enemy = assert(self.nextEnemy, "test incoming enemy")
+    self:sayNext("trainer withdrew")
+    self:sayNext("trainer sent out")
+    return "switched"
+  end
+  return "ordinary"
+end
+package.loaded["src.battle.BattleState"] = fakeBattleState
+
+local battleModelSetting = "stadium"
+modules.OverworldBattle = {
+  setting = {
+    values = { true, "flatB", "stadium", "stadiumB", false },
+    labels = { "2D-3D A", "2D-3D B", "STADIUM", "STADIUM B", "OFF" },
+    get = function() return battleModelSetting end,
+  },
+}
+
 ok(Bridge.install(fakeCrystalMod, cache, { exports={ lib=fakeV } }),
   "bridge installs through DRAMATIC_SHAPE's exported module namespace")
+
+-- Stadium 2 models leave through a matching ball-in transition. A battler
+-- identity change keeps the outgoing rig alive while it contracts, including
+-- same-species replacements, and the engine's sendingOut flag is only hidden
+-- from Stadium.update -- it is restored before the normal battle draw.
+local recallOldBattler = { mon={ dvs={ attack=9, defense=8, speed=8, special=8 } } }
+local recallNewBattler = { mon={ dvs={ attack=9, defense=8, speed=8, special=8 } } }
+local recallRig = { releases=0 }
+function recallRig:release() self.releases = self.releases + 1 end
+local recallMon = setmetatable({
+  side="player", species=1, _crystal251Variant="normal",
+  _crystal251Battler=recallOldBattler,
+  rig=recallRig, model={ anims={ { frames=2 } } }, scale=1,
+}, { __index=modules.StadiumMon })
+local recallBattle = {
+  player=recallNewBattler, enemy={ mon={} }, sendingOut=true,
+  testMon=recallMon, testDex=1,
+}
+eq(modules.Stadium.update(0, recallBattle, 0), "updated",
+  "Stadium update preserves its wrapped return value during recall")
+ok(recallMon._crystal251Recall ~= nil,
+  "same-species battler replacement starts Stadium ball-in recall")
+eq(recallMon.species, 1,
+  "outgoing Stadium model stays loaded while recall is running")
+ok(recallBattle._stadiumSawSendingOut == false,
+  "Stadium sees outgoing player model while it is being recalled")
+ok(recallBattle.sendingOut == true,
+  "engine player sendingOut flag is restored after Stadium update")
+recallMon:update(0.20)
+ok(recallMon.scale > 0 and recallMon.scale < 1,
+  "Stadium ball-in recall contracts smoothly instead of popping out")
+local recallMatrix = recallMon:matrix(1, 2, 3)
+ok(recallMatrix.y > 2,
+  "recalling model converges upward toward its ball point")
+recallMon:update(0.25)
+eq(recallMon.scale, 0,
+  "Stadium ball-in reaches zero scale after its recall duration")
+
+-- Real 2D-3D A is stored as boolean true. It must bypass every Stadium-only
+-- recall/model state while retaining the engine's own billboard animation.
+battleModelSetting = true
+local flatOldBattler = { mon={ dvs={ attack=9, defense=8, speed=8, special=8 } } }
+local flatNewBattler = { mon={ dvs={ attack=9, defense=8, speed=8, special=8 } } }
+local flatRig = { releases=0 }
+function flatRig:release() self.releases = self.releases + 1 end
+local flatMon = setmetatable({
+  side="player", species=1, _crystal251Variant="normal",
+  _crystal251Battler=flatOldBattler,
+  rig=flatRig, model={ anims={ { frames=2 } } }, scale=1,
+}, { __index=modules.StadiumMon })
+local flatRecallBattle = {
+  player=flatNewBattler, enemy={ mon={} }, sendingOut=true,
+  testMon=flatMon, testDex=1,
+}
+eq(modules.Stadium.update(0, flatRecallBattle, 0), "updated",
+  "2D-3D A update preserves the wrapped Stadium return value")
+ok(flatRecallBattle._stadiumSawSendingOut == true,
+  "2D-3D A sees the engine sendingOut flag without Stadium suppression")
+ok(flatMon._crystal251Recall == nil,
+  "2D-3D A same-species replacement never starts Stadium recall")
+eq(flatMon.scale, 1,
+  "2D-3D A replacement does not inherit Stadium shrink scale")
+eq(flatMon._crystal251Battler, flatNewBattler,
+  "2D-3D A keeps Stadium battler identity synchronized for later mode changes")
+flatMon.done = true
+ok(flatMon:finished(),
+  "2D-3D A finished state is delegated directly to the original model helper")
+
+battleModelSetting = "flatB"
+flatMon._crystal251Battler = flatOldBattler
+flatRecallBattle.player = flatNewBattler
+eq(modules.Stadium.update(0, flatRecallBattle, 0), "updated",
+  "2D-3D B update preserves the wrapped Stadium return value")
+ok(flatMon._crystal251Recall == nil,
+  "2D-3D B also bypasses Stadium recall state")
+
+battleModelSetting = "stadium"
+
+-- A faint gets its full collapse first. Only after StadiumMon reports that
+-- held animation finished does the same ball-in run; onField therefore keeps
+-- the model visible until the recall itself completes.
+local faintMon = setmetatable({
+  side="enemy", species=1, _crystal251Variant="normal",
+  rig={}, model={ anims={ { frames=2 } } },
+  state="faint", done=true, scale=1,
+}, { __index=modules.StadiumMon })
+ok(not faintMon:finished(),
+  "finished Stadium faint starts recall instead of disappearing immediately")
+eq(faintMon._crystal251Recall and faintMon._crystal251Recall.reason, "faint",
+  "faint exit is identified as a Stadium recall")
+faintMon:update(0.41)
+ok(faintMon:finished(),
+  "Stadium faint becomes removable only after ball-in finishes")
+eq(faintMon.scale, 0,
+  "completed faint recall has fully contracted the model")
+
+local outgoingEnemy = { mon={ hp=20 } }
+local incomingEnemy = { mon={ hp=30 } }
+local switchBattle = setmetatable({
+  crystal251Active=true, enemy=outgoingEnemy, nextEnemy=incomingEnemy, queue={},
+}, { __index=fakeBattleState })
+eq(switchBattle:executeAction(nil, nil, { special="aiSwitch" }), "switched",
+  "Stadium AI switch preserves the engine action result")
+ok(switchBattle.enemySendingOut,
+  "Stadium AI switch hides the incoming enemy through its send-out text")
+eq(#switchBattle.queue, 3,
+  "Stadium AI switch queues one arrival action after the two engine messages")
+eq(switchBattle.queue[1].text, "trainer withdrew",
+  "withdraw text remains ahead of the Stadium arrival")
+eq(switchBattle.queue[2].text, "trainer sent out",
+  "send-out text remains ahead of the Stadium arrival")
+local stadiumArrival = switchBattle.queue[3].fn
+ok(type(stadiumArrival) == "function",
+  "Stadium AI switch queues an isolated arrival action")
+ok(not switchBattle.growCalls,
+  "Stadium AI switch does not call the shared startGrowIn hook early")
+
+-- Execute the queued action as BattleState.updateQueue does: the current fn is
+-- already removed and nextInsert is reset to zero.
+switchBattle.queue = {}
+switchBattle.nextInsert = 0
+stadiumArrival()
+ok(not switchBattle.enemySendingOut,
+  "Stadium enemy becomes visible when its arrival begins")
+ok(not switchBattle.growCalls,
+  "AI arrival never enters the globally wrapped startGrowIn hook")
+eq(switchBattle.growIn and switchBattle.growIn.battler, incomingEnemy,
+  "Stadium AI switch still installs the engine 12-frame grow state")
+eq(switchBattle.queue[1] and switchBattle.queue[1].wait, 12,
+  "Stadium AI switch keeps the engine grow hold")
+eq(switchBattle._crystal251StadiumEntrancePending, incomingEnemy,
+  "Stadium AI switch defers the skeletal entrance to the incoming rig")
+
+-- The next Stadium update consumes that token on the ACTUAL replacement rig.
+local arrivalRig = { release=function() end }
+local arrivalMon = setmetatable({
+  side="enemy", species=1, _crystal251Variant="normal",
+  _crystal251Battler=incomingEnemy,
+  rig=arrivalRig, model={ anims={ {}, {} } }, scale=1,
+}, { __index=modules.StadiumMon })
+switchBattle.testMon = arrivalMon
+switchBattle.testDex = 1
+eq(modules.Stadium.update(0, switchBattle, 0), "updated",
+  "Stadium update consumes the queued model entrance on the replacement rig")
+eq(arrivalMon.beginGrowCalls, 1,
+  "replacement Stadium rig starts its smooth model grow")
+eq(arrivalMon.state, "entrance",
+  "replacement Stadium rig plays its entrance animation")
+ok(switchBattle._crystal251StadiumEntrancePending == nil,
+  "Stadium model entrance token is consumed exactly once")
+
+-- A later attack must remain able to replace the entrance state. This guards
+-- the regression where switch plumbing poisoned normal 3D battle animations.
+ok(arrivalMon:request("attack", 2),
+  "Stadium model still accepts battle animation requests after arrival")
+eq(arrivalMon.state, "attack",
+  "Stadium battle animation state is not stuck on entrance/recall")
+
+-- 2D-3D A gets the same ENGINE grow, but never touches the Stadium model
+-- entrance hook or pending model state.
+battleModelSetting = true
+local flatBattle = setmetatable({
+  crystal251Active=true, enemy=outgoingEnemy, nextEnemy=incomingEnemy, queue={},
+}, { __index=fakeBattleState })
+flatBattle:executeAction(nil, nil, { special="aiSwitch" })
+ok(flatBattle.enemySendingOut,
+  "2D-3D A hides the incoming billboard through the send-out text")
+eq(#flatBattle.queue, 3,
+  "2D-3D A queues its arrival after the two switch messages")
+local flatArrival = flatBattle.queue[3].fn
+flatBattle.queue = {}
+flatBattle.nextInsert = 0
+flatArrival()
+ok(not flatBattle.enemySendingOut,
+  "2D-3D A reveals the incoming billboard for grow-in")
+eq(flatBattle.growIn and flatBattle.growIn.battler, incomingEnemy,
+  "2D-3D A receives the engine grow-in state")
+eq(flatBattle.queue[1] and flatBattle.queue[1].wait, 12,
+  "2D-3D A receives the normal 12-frame grow hold")
+ok(not flatBattle.growCalls,
+  "2D-3D A never calls the Stadium/shared startGrowIn hook")
+ok(flatBattle._crystal251StadiumEntrancePending == nil,
+  "2D-3D A never creates Stadium model entrance state")
+
+battleModelSetting = "flatB"
+local flatBBattle = setmetatable({
+  crystal251Active=true, enemy=outgoingEnemy, nextEnemy=incomingEnemy, queue={},
+}, { __index=fakeBattleState })
+flatBBattle:executeAction(nil, nil, { special="aiSwitch" })
+local flatBArrival = flatBBattle.queue[3].fn
+flatBBattle.queue = {}
+flatBBattle.nextInsert = 0
+flatBArrival()
+eq(flatBBattle.growIn and flatBBattle.growIn.battler, incomingEnemy,
+  "2D-3D B receives the same isolated engine grow-in")
+
+-- Ordinary actions must be byte-for-byte routing-wise: no send-out flags,
+-- grow state, pending entrance, or extra queue rows.
+battleModelSetting = "stadium"
+local ordinaryBattle = setmetatable({
+  crystal251Active=true, enemy=outgoingEnemy, queue={},
+}, { __index=fakeBattleState })
+eq(ordinaryBattle:executeAction(nil, nil, { special=nil }), "ordinary",
+  "ordinary Crystal battle actions still pass straight through")
+ok(ordinaryBattle.enemySendingOut == nil
+   and ordinaryBattle.growIn == nil
+   and ordinaryBattle._crystal251StadiumEntrancePending == nil
+   and #ordinaryBattle.queue == 0,
+  "AI switch compatibility never contaminates normal battle animations")
+package.loaded["src.battle.BattleState"] = savedBattleStateModule
 eq(modules.StadiumInstall.COUNT, 251,
   "installed bridge replaces the 151-model importer with Stadium 2's 251")
 eq(modules.StadiumRomPick.LABEL, "STADIUM 2 ROM",

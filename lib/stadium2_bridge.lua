@@ -5,7 +5,7 @@ Bridge.MAX_COUNT = 251
 Bridge.COUNT = 251
 Bridge.OWNER_ID = "CRYSTAL_251"
 Bridge.OWNER_NAME = "Crystal 251"
-Bridge.FORMAT = "C2DSM8"
+Bridge.FORMAT = "C2DSM10"
 Bridge.VARIANTS = 2
 Bridge.US_MD5 = "1561c75d11cedf356a8ddb1a4a5f9d5d"
 Bridge.ROM_DIR = "baseroms"
@@ -111,6 +111,93 @@ local function labelStadium2(V)
   for index, value in ipairs(setting.values) do
     if value == "stadium" then setting.labels[index] = "STADIUM 2 A"
     elseif value == "stadiumB" then setting.labels[index] = "STADIUM 2 B" end
+  end
+  return true
+end
+
+
+-- Gen1Recomp's trainer AI switch path swaps the enemy battler and prints the
+-- withdraw/send-out text, but unlike the normal enemy replacement path it
+-- never installs AnimateSendingOutMon's 12-frame grow. Both staged battle
+-- modes need that engine transition. Stadium additionally needs its skeletal
+-- entrance, but that must be requested on the replacement rig itself rather
+-- than by routing the AI shim through Dramatic Shape's shared startGrowIn hook.
+local function installEnemySwitchAnimation(V)
+  local ok, BattleState = pcall(require, "src.battle.BattleState")
+  if not (ok and BattleState and type(BattleState.executeAction) == "function") then
+    return false
+  end
+  if BattleState._crystal251Stadium2EnemySwitchAnimation then return true end
+  BattleState._crystal251Stadium2EnemySwitchAnimation = true
+
+  -- Gen1Recomp's startGrowIn is also the hook Dramatic Shape uses to ask a
+  -- StadiumMon for its entrance animation. Calling that shared hook from an
+  -- AI-switch shim couples the flat billboard and Stadium-model paths and can
+  -- leave the wrong model state active. The engine part is tiny, so reproduce
+  -- ONLY that part here: install the 12-frame grow state + queue hold. Stadium
+  -- gets its skeletal entrance separately, on the actual replacement rig.
+  local function startEngineGrowIn(self, battler)
+    if not (self and battler and type(self.queue) == "table") then return false end
+    self.growIn = { battler = battler, frame = 0 }
+    self.nextInsert = (self.nextInsert or 0) + 1
+    table.insert(self.queue, self.nextInsert, { wait = 12 })
+    return true
+  end
+
+  local innerExecuteAction = BattleState.executeAction
+  BattleState.executeAction = function(self, user, target, action)
+    local crystalSwitch = self and self.crystal251Active
+      and action and action.special == "aiSwitch"
+    local mode = crystalSwitch and modelValue(V) or nil
+    local stadiumSwitch = crystalSwitch
+      and (mode == "stadium" or mode == "stadiumB")
+    local flatSwitch = crystalSwitch and (mode == true or mode == "flatB")
+    local stagedSwitch = stadiumSwitch or flatSwitch
+    local previous = stagedSwitch and self.enemy or nil
+
+    -- Match the engine's normal enemy replacement path: the incoming side is
+    -- hidden while "sent out" text is on screen. Crystal's Stadium.update
+    -- temporarily exposes only the OUTGOING model while its private recall is
+    -- running, then restores this flag before the normal 2D layers draw.
+    if stagedSwitch then self.enemySendingOut = true end
+
+    local result = innerExecuteAction(self, user, target, action)
+
+    if stagedSwitch then
+      local incoming = self.enemy
+      if incoming and incoming ~= previous and incoming.mon
+          and (incoming.mon.hp or 0) > 0
+          and type(self.actNext) == "function" then
+        self:actNext(function()
+          -- A later replacement in the same queue invalidates this arrival.
+          if self.enemy ~= incoming then
+            self.enemySendingOut = false
+            if self._crystal251StadiumEntrancePending == incoming then
+              self._crystal251StadiumEntrancePending = nil
+            end
+            return
+          end
+
+          self.enemySendingOut = false
+
+          -- Keep the engine/billboard grow common to BOTH staged modes, but do
+          -- not call the globally wrapped startGrowIn hook from here.
+          startEngineGrowIn(self, incoming)
+
+          -- StadiumMon.setSpecies consumes this only after the incoming rig is
+          -- really installed. That prevents an entrance request from landing
+          -- on the outgoing rig that Crystal deliberately keeps alive during
+          -- its recall.
+          if stadiumSwitch then
+            self._crystal251StadiumEntrancePending = incoming
+          end
+        end)
+      else
+        self.enemySendingOut = false
+      end
+    end
+
+    return result
   end
   return true
 end
@@ -977,6 +1064,79 @@ local function normaliseDrawableModel(model, species, Fx)
   }
 end
 
+local function matrixPoseSignature(matrices)
+  if type(matrices) ~= "table" or #matrices == 0 then return nil end
+  local loX, loY, loZ = math.huge, math.huge, math.huge
+  local hiX, hiY, hiZ = -math.huge, -math.huge, -math.huge
+  local maxAxis = 0
+  for _, matrix in ipairs(matrices) do
+    if type(matrix) ~= "table" or type(matrix[1]) ~= "table"
+        or type(matrix[2]) ~= "table" or type(matrix[3]) ~= "table" then
+      return nil
+    end
+    for row = 1, 3 do
+      for column = 1, 4 do
+        local value = tonumber(matrix[row][column])
+        if not value or value ~= value or value == math.huge or value == -math.huge then
+          return nil
+        end
+      end
+    end
+    local x, y, z = matrix[1][4], matrix[2][4], matrix[3][4]
+    if x < loX then loX = x end
+    if y < loY then loY = y end
+    if z < loZ then loZ = z end
+    if x > hiX then hiX = x end
+    if y > hiY then hiY = y end
+    if z > hiZ then hiZ = z end
+    for column = 1, 3 do
+      local a, b, c = matrix[1][column], matrix[2][column], matrix[3][column]
+      local axis = math.sqrt(a * a + b * b + c * c)
+      if axis > maxAxis then maxAxis = axis end
+    end
+  end
+  local dx, dy, dz = hiX - loX, hiY - loY, hiZ - loZ
+  return math.sqrt(dx * dx + dy * dy + dz * dz), maxAxis
+end
+
+-- A bad Stadium 2 pose decode does not merely move the whole Pokemon. It
+-- separates bones or multiplies one bone's scale until the mesh appears to
+-- explode. Whole-body travel is legitimate (some faint animations move many
+-- body-heights), so test only RELATIVE skeleton spread and accumulated scale.
+-- This is intentionally conservative: normal animation may stretch a pose a
+-- little, but an eightfold change in either measurement is corrupt data.
+local function animationLooksExplosive(data, animation, Build)
+  if type(animation) ~= "table" or type(data) ~= "table" then return false end
+  if type(data.bones) ~= "table" or #data.bones == 0 then return false end
+  if not (Build and type(Build.bindMatrices) == "function"
+      and type(Build.animSample) == "function") then
+    return false
+  end
+  local frames = math.max(1, math.floor(tonumber(animation.frames) or 1))
+  -- Stadium battle clips are a few hundred frames at most. A wildly longer
+  -- decoded record is itself evidence that the wrong pose header was chosen.
+  if frames > 600 then return true, "implausible frame count" end
+
+  local okBind, bindMatrices = pcall(Build.bindMatrices, data.bones)
+  if not okBind then return false end
+  local bindSpread, bindAxis = matrixPoseSignature(bindMatrices)
+  if not bindSpread or not bindAxis then return false end
+  bindSpread = math.max(bindSpread, 1e-6)
+  bindAxis = math.max(bindAxis, 1e-6)
+
+  for frame = 0, frames - 1 do
+    local okSample, sample = pcall(Build.animSample, data.bones, animation, frame)
+    if not okSample then return true, "pose sample failed" end
+    local okPose, matrices = pcall(Build.bindMatrices, data.bones, sample)
+    if not okPose then return true, "pose matrix failed" end
+    local spread, axis = matrixPoseSignature(matrices)
+    if not spread or not axis then return true, "non-finite pose" end
+    if spread / bindSpread > 8.0 then return true, "bone spread" end
+    if axis / bindAxis > 8.0 then return true, "bone scale" end
+  end
+  return false
+end
+
 local function genericAnimationTable(data, Build)
   local animations = data.anims or {}
   if #animations == 0 then
@@ -997,20 +1157,48 @@ local function genericAnimationTable(data, Build)
     }
     data.anims = animations
   end
-  local names = { "idle", "attack_default", "faint", "entrance" }
+
+  local sourceCount = #animations
+  local idle = 0
+  local attack = sourceCount > 1 and 1 or idle
+  local faint = sourceCount > 2 and 2 or idle
+  local entrance = sourceCount > 3 and 3 or idle
+
+  -- Keep the real decoded faint animation. The previous safety fallback used
+  -- a one-frame bind pose, which StadiumMon correctly considered finished on
+  -- the next update and therefore removed immediately. Instead reject only a
+  -- pose that actually blows the skeleton apart; a rejected faint falls back
+  -- to the already-validated idle bank for that species, while normal species
+  -- retain their full collapse animation.
+  local faintRejected, faintReason = false, nil
+  if faint ~= idle then
+    faintRejected, faintReason = animationLooksExplosive(data,
+      animations[faint + 1], Build)
+    if faintRejected then faint = idle end
+  end
+  data.stadium2FaintRejected = faintRejected or nil
+  data.stadium2FaintRejectReason = faintRejected and faintReason or nil
+
   local auxiliary = data.auxAnims or {}
   for index, animation in ipairs(animations) do
-    animation.name = names[index] or ("anim" .. tostring(index - 1))
+    if index == 1 then
+      animation.name = "idle"
+    elseif index == 2 then
+      animation.name = "attack_default"
+    elseif index == 3 then
+      animation.name = faintRejected and "faint_rejected" or "faint"
+    elseif index == 4 then
+      animation.name = "entrance"
+    else
+      animation.name = "anim" .. tostring(index - 1)
+    end
     -- Stadium 2 keeps eye/material streams beside the skeletal banks. Without
     -- its still-undecoded battle lookup table, matching by bank order is the
     -- safest faithful default and is strictly better than discarding every
     -- blink stream as the bind-pose implementation did.
     animation.aux = #auxiliary > 0 and math.min(index - 1, #auxiliary - 1) or -1
   end
-  local idle = 0
-  local attack = #animations > 1 and 1 or idle
-  local faint = #animations > 2 and 2 or attack
-  local entrance = #animations > 3 and 3 or idle
+
   local rows = {}
   local attackAux = animations[attack + 1] and animations[attack + 1].aux or -1
   for move = 1, 165 do rows[move] = { attack, attackAux } end
@@ -1620,10 +1808,152 @@ local function patchModels(V, Pack)
   local StadiumRig = V.require("StadiumRig")
 
   local oldUpdate = Stadium.update
+  local oldMonUpdate = StadiumMon.update
+  local oldFinished = StadiumMon.finished
+  local oldMatrix = StadiumMon.matrix
+  local wantedBattler = { player=nil, enemy=nil }
+  local activeBattle = nil
+
+  -- Stadium's send-out already grows a model out of the ball, but its exit
+  -- path has no matching model transition: a switch replaces the battler
+  -- table immediately and a completed faint simply stops being onField. For
+  -- Stadium 2 that reads as a hard pop. Keep the old rig alive briefly and
+  -- contract it toward the ball point before allowing the replacement/removal.
+  local RECALL_TIME = 0.40
+  local RECALL_LIFT = 0.45
+
+  local function beginRecall(self, reason)
+    if not modelsSelected(V) then return false end
+    if not (self and self.rig and self.model) then return false end
+    if self._crystal251Recall then return true end
+    self.grow = nil
+    self._crystal251Recall = { time=0, done=false, reason=reason or "switch" }
+    self.scale = 1
+    return true
+  end
+
+  local function recallScale(self)
+    local recall = self and self._crystal251Recall
+    if not recall then return 1 end
+    local t = (tonumber(recall.time) or 0) / RECALL_TIME
+    if t <= 0 then return 1 end
+    if t >= 1 then return 0 end
+    local smooth = t * t * (3 - 2 * t)
+    return 1 - smooth
+  end
+
+  -- Consume the AI-switch entrance only when this StadiumMon is definitely
+  -- the replacement battler's rig. The token is placed after the withdraw /
+  -- send-out messages, so neither the outgoing recall nor a flat 2D-3D fight
+  -- can accidentally receive the model animation.
+  local function startPendingEntrance(self, battler)
+    local battle = activeBattle
+    if not (modelsSelected(V) and battle and battler and self and self.rig) then
+      return false
+    end
+    if battle._crystal251StadiumEntrancePending ~= battler then return false end
+    battle._crystal251StadiumEntrancePending = nil
+
+    if type(self.beginGrow) == "function" then self:beginGrow() end
+    if type(self.request) == "function" then
+      return self:request("entrance")
+    end
+    if type(self.play) == "function" then
+      return self:play("entrance")
+    end
+    return false
+  end
+
+  -- The wrapper records battler IDENTITY as well as species. That matters for
+  -- two identical Pokemon switching into one another, and it prevents
+  -- Transform (same battler, different species) from being mistaken for a
+  -- recall. While the outgoing rig is shrinking, temporarily clear only the
+  -- Stadium module's view of sendingOut; the flag is restored before the
+  -- engine draws HUD/text, so the incoming Pokemon stays hidden normally.
   Stadium.update = function(dt, battle, groundY)
     wantedVariant.player = variantFor(battle and battle.player and battle.player.mon)
     wantedVariant.enemy = variantFor(battle and battle.enemy and battle.enemy.mon)
-    return oldUpdate(dt, battle, groundY)
+    wantedBattler.player = battle and battle.player or nil
+    wantedBattler.enemy = battle and battle.enemy or nil
+    if battle and not modelsSelected(V) then
+      battle._crystal251StadiumEntrancePending = nil
+    end
+    activeBattle = battle
+    local sendingOut = battle and battle.sendingOut
+    local enemySendingOut = battle and battle.enemySendingOut
+    local ok, result = pcall(oldUpdate, dt, battle, groundY)
+    if battle then
+      battle.sendingOut = sendingOut
+      battle.enemySendingOut = enemySendingOut
+    end
+    activeBattle = nil
+    if not ok then error(result, 0) end
+    return result
+  end
+
+  if type(oldMonUpdate) == "function" then
+    StadiumMon.update = function(self, dt)
+      if not modelsSelected(V) then
+        -- Recall is a Stadium-model transition only. If the user changes to
+        -- flat 2D-3D mid-battle, discard any private model-exit state and let
+        -- the billboard path follow the engine's own switch animation.
+        self._crystal251Recall = nil
+        self._crystal251ExitComplete = nil
+        self.scale = 1
+      end
+      local result = oldMonUpdate(self, dt)
+      local recall = self._crystal251Recall
+      if recall then
+        recall.time = math.min(RECALL_TIME,
+          (tonumber(recall.time) or 0) + math.max(0, tonumber(dt) or 0))
+        self.scale = recallScale(self)
+        if recall.time >= RECALL_TIME then
+          recall.done = true
+          self.scale = 0
+        end
+      end
+      return result
+    end
+  end
+
+  if type(oldMatrix) == "function" then
+    StadiumMon.matrix = function(self, x, groundY, z, faceX, faceZ)
+      local recall = modelsSelected(V) and self._crystal251Recall or nil
+      if recall then
+        -- Scale is about the model's feet. Lift the origin while it contracts
+        -- so the silhouette converges near its body centre instead of sinking
+        -- into the floor. This is the visual "ball-in" point.
+        local scale = tonumber(self.scale) or recallScale(self)
+        local height = type(self.worldHeight) == "function"
+          and (tonumber(self:worldHeight()) or 0) or 0
+        groundY = (tonumber(groundY) or 0)
+          + height * RECALL_LIFT * (1 - scale)
+      end
+      return oldMatrix(self, x, groundY, z, faceX, faceZ)
+    end
+  end
+
+  if type(oldFinished) == "function" then
+    StadiumMon.finished = function(self)
+      if not modelsSelected(V) then
+        return oldFinished(self)
+      end
+      local recall = self._crystal251Recall
+      if recall then
+        if recall.done then
+          self._crystal251ExitComplete = true
+          return true
+        end
+        return false
+      end
+      local finished = oldFinished(self)
+      if finished and self.state == "faint" and beginRecall(self, "faint") then
+        -- Keep Stadium.onField true until the collapse has contracted back
+        -- into its ball. The next call returns true once recall.done is set.
+        return false
+      end
+      return finished
+    end
   end
 
   local oldAttack = StadiumMon.attack
@@ -1732,24 +2062,104 @@ local function patchModels(V, Pack)
 
   StadiumMon.setSpecies = function(self, dex)
     local variant = wantedVariant[self.side] or "normal"
-    if dex == self.species and variant == self._crystal251Variant then
+    local battler = wantedBattler[self.side]
+    local recallEnabled = modelsSelected(V)
+    local hadBattler = self._crystal251Battler ~= nil
+    local occupantChanged = recallEnabled and hadBattler
+      and battler ~= self._crystal251Battler
+    local sameVisual = dex == self.species
+      and variant == self._crystal251Variant
+
+    if not recallEnabled then
+      -- Flat 2D-3D owns its own withdraw/send-out animation. Never carry a
+      -- Stadium recall across the mode boundary and keep battler identity in
+      -- sync so returning to Stadium does not invent a stale switch.
+      self._crystal251Recall = nil
+      self._crystal251ExitComplete = nil
+      self.scale = 1
+    end
+
+    if sameVisual and not occupantChanged then
+      if recallEnabled then
+        startPendingEntrance(self, battler)
+      else
+        self._crystal251Battler = battler
+      end
       return self.rig ~= nil
     end
+
+    -- Real switch/replacement: keep the outgoing rig until the ball-in has
+    -- completed. This also catches same-species replacements because battler
+    -- identity changes even when the dex number does not. A faint that already
+    -- completed its own recall sets _crystal251ExitComplete and skips a second
+    -- shrink when its replacement finally occupies the slot.
+    if recallEnabled and occupantChanged and self.rig
+        and not self._crystal251ExitComplete then
+      -- If the battle has already installed the replacement while the old
+      -- model is still collapsing, do not turn that collapse into a generic
+      -- switch recall. Let the faint finish first, then run the ball-in.
+      if self.state == "faint" and not self._crystal251Recall
+          and type(oldFinished) == "function" then
+        if oldFinished(self) then
+          beginRecall(self, "faint")
+        else
+          if activeBattle then
+            if self.side == "enemy" then
+              activeBattle.enemySendingOut = false
+            else
+              activeBattle.sendingOut = false
+            end
+          end
+          return true
+        end
+      else
+        beginRecall(self, "switch")
+      end
+      local recall = self._crystal251Recall
+      if recall and not recall.done then
+        if activeBattle then
+          if self.side == "enemy" then
+            activeBattle.enemySendingOut = false
+          else
+            activeBattle.sendingOut = false
+          end
+        end
+        return true
+      end
+    end
+
+    self._crystal251Recall = nil
+    self._crystal251ExitComplete = nil
     if self.rig then self.rig:release() end
     self.rig, self.model, self.species = nil, nil, dex
     self._crystal251Variant = variant
+    self._crystal251Battler = battler
     self._crystal251PoseSerial = (self._crystal251PoseSerial or 0) + 1
     self._crystal251SkinFrame = nil
     self._crystal251SkinDt = 0
     self.grow, self.grewOwn = nil, nil
+    self.scale = 1
     if not dex then return false end
     local model = Pack.load(dex, variant)
-    if not model or model.staticPose then return false end
+    if not model or model.staticPose then
+      if activeBattle
+          and activeBattle._crystal251StadiumEntrancePending == battler then
+        activeBattle._crystal251StadiumEntrancePending = nil
+      end
+      return false
+    end
     local rig = StadiumRig.new(model)
-    if not rig then return false end
+    if not rig then
+      if activeBattle
+          and activeBattle._crystal251StadiumEntrancePending == battler then
+        activeBattle._crystal251StadiumEntrancePending = nil
+      end
+      return false
+    end
     self.model, self.rig = model, rig
     self.state, self.anim, self.time = nil, nil, 0
     self:play("idle")
+    startPendingEntrance(self, battler)
     return true
   end
 
@@ -2759,6 +3169,11 @@ function Bridge.install(mod, cache, dramatic, options)
   local V = exports and exports.lib
   if not (V and V.require and V.mod) then return false end
 
+  -- Install this even when another mod owns the shared Stadium 2 pack bridge:
+  -- the missing AI-switch entrance is a Crystal battle-flow compatibility
+  -- seam, independent of which mod supplied the shared model cache.
+  installEnemySwitchAnimation(V)
+
   local shared = V._pokemonStadium2Bridge
   if shared and shared ~= Bridge then
     delegatedBridge = shared
@@ -2819,12 +3234,14 @@ Bridge._test = {
   romTitle = romTitle,
   n64Title = n64Title,
   genericAnimationTable = genericAnimationTable,
+  animationLooksExplosive = animationLooksExplosive,
   fallbackTexture = fallbackTexture,
   normaliseDrawableModel = normaliseDrawableModel,
   modelValue = modelValue,
   modelsSelected = modelsSelected,
   selectModels = selectModels,
   labelStadium2 = labelStadium2,
+  installEnemySwitchAnimation = installEnemySwitchAnimation,
 }
 
 return Bridge
