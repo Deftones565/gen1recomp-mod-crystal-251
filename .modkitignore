@@ -8,3 +8,4 @@ tests/battle_visual_driver.lua
 tests/reimport_driver.lua
 tests/dex_visual_driver.lua
 tests/sanctuary_visual_driver.lua
+tests/crystal_tmhm_visual_driver.lua

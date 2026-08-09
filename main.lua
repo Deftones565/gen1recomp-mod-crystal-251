@@ -180,6 +180,13 @@ local function installItems(mod)
         tossable=false, needsTarget=true, machine={ kind="HM", move=move, number=number } })
     end
   end
+  -- Gen1Recomp's machine item ids are named after the Gen I move they taught
+  -- (TM_MEGA_PUNCH is the item displayed as TM01, for example). Crystal's
+  -- per-species tmhm bitfield is numbered against Crystal's own machine list,
+  -- so leaving the item records untouched makes TM01 ask for MEGA_PUNCH while
+  -- the Pokemon record correctly advertises DYNAMICPUNCH. Remap by machine
+  -- number while preserving every existing item id/story reward/save entry.
+  require("mods.CRYSTAL_251.lib.crystal_machines").patchItems(mod)
   mod.content.text_pointers:patch("CeladonMart4F", {
     TEXT_CELADONMART4F_CLERK={
       label="CeladonMart4FClerkText",
@@ -467,11 +474,13 @@ local function registerContent(mod, cache)
   local sanctuaries = require("mods.CRYSTAL_251.sanctuaries").install(mod)
   local ecology = require("mods.CRYSTAL_251.ecology").install(mod, cache)
   local trades = require("mods.CRYSTAL_251.trades").install(mod)
+  local machineProgression = require("mods.CRYSTAL_251.machine_progression").install(mod)
   local trainerChanges = require("mods.CRYSTAL_251.trainers").install(mod)
   mod.exports.ecology = ecology
   mod.exports.sanctuaries = sanctuaries
   mod.exports.trainerChanges = trainerChanges
   mod.exports.trades = trades
+  mod.exports.machineProgression = machineProgression
 end
 
 return function(mod)
@@ -520,19 +529,25 @@ return function(mod)
   end, 100)
   if not cache then
     local autoStarted = false
-    mod.events:on("game.ready", function(ev)
-      if autoStarted or not ImportScreen.romPresent() then return end
-      local readyGame = (ev and ev.game) or require("src.core.Game")
+    mod.events:on("screen.pushed", function(ev)
+      if autoStarted or not (ev and ev.state) then return end
+      local readyGame = require("src.core.Game")
       if not (readyGame and readyGame.stack) then return end
+      local boot = readyGame.data and readyGame.data.field and readyGame.data.field.boot
+      local screens = boot and boot.screens
+      local splash = (screens and screens.splash) or "IntroMovie"
+      local bootScreen = ev.state.screenId == splash
+        or (os.getenv("POKEPORT_AUTOPILOT") and ev.state == readyGame.overworld)
+      if not bootScreen or not ImportScreen.romPresent() then return end
       autoStarted = true
       mod.ui.push(readyGame, "Crystal251AutoImport")
     end)
     if staleCache then
-      mod.log:warn("Crystal cache is outdated or incomplete; a ROM in baseroms "
-        .. "will be reimported automatically, or use CRYSTAL ROM in OPTIONS")
+      mod.log:warn("Crystal cache is outdated or incomplete; a ROM beside the game "
+        .. "or in baseroms will be reimported automatically, or use CRYSTAL ROM in OPTIONS")
     else
-      mod.log:warn("Crystal data is not imported; a ROM in baseroms will be "
-        .. "imported automatically, or use CRYSTAL ROM in OPTIONS")
+      mod.log:warn("Crystal data is not imported; a ROM beside the game or in "
+        .. "baseroms will be imported automatically, or use CRYSTAL ROM in OPTIONS")
     end
     return
   end

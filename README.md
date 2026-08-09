@@ -53,7 +53,11 @@ archive offsets, file indexes, and retained parser errors.
 - Adds Steel and Dark and applies the Generation II type chart.
 - Converts happiness evolutions to levels, trade evolutions to evolution items,
   Espeon/Umbreon to Sun Stone/Moon Stone, and Tyrogue to its three stat checks.
-- Adds HM06 Whirlpool and HM07 Waterfall to the HM rules.
+- Adds HM06 Whirlpool and HM07 Waterfall to the HM rules and to ordinary
+  progression. Lance gives HM06 after the Rocket Hideout Giovanni victory,
+  while HM07 is an item-ball pickup deep in Seafoam Islands beside Articuno.
+  These preserve Crystal's Rocket-operation gift and ice-cave pickup methods
+  in the conversion's Kanto-only world.
 - Replaces Kanto's single-mon Generation I Day Care with Crystal's split
   two-attendant flow. The existing Day Care Man owns the first slot, an
   appended Day Care Lady owns the second, and an appended Route 5 Day Care Man
@@ -181,6 +185,30 @@ handling. `crystal_full_battle_test.lua` additionally drives complete
 BattleState queue and party-menu sequences for trapped switching, replacement,
 Pursuit, Baton Pass, Spikes, residual release, simultaneous switches, and
 volatile-state cleanup.
+
+Audit all 50 TMs and seven HMs—including their ordinary acquisition sources,
+Crystal compatibility, accepted applications, rejection paths, and TM/HM
+consumption contracts—with:
+
+```bash
+CRYSTAL_ROM="/path/to/Pokemon Crystal.gbc" \
+  luajit mods/CRYSTAL_251/tests/crystal_machine_full_audit_test.lua
+```
+
+The corresponding in-game visual smoke test drives the real Bag, boot text,
+`ABLE / NOT ABLE` party display, incompatible rejection, successful teaching,
+TM consumption, and HM retention for all 57 machines. It writes three captures
+per machine plus a final PASS screen:
+
+```bash
+SHOT_DIR=/tmp/crystal-tmhm-visual \
+POKEPORT_DRIVER=mods/CRYSTAL_251/tests/crystal_tmhm_visual_driver.lua \
+POKEPORT_TOUCH=0 POKEPORT_SPEED=20 CRYSTAL_TM_VISUAL_ALL_PAIRS=0 \
+  love .
+```
+
+Set `CRYSTAL_TM_VISUAL_ALL_PAIRS=1` to exercise every one of the imported
+Crystal compatibility pairs instead of one positive/negative pair per machine.
 
 - Stadium 2 compatibility reads the National Dex model table and the separate Pokemon pose table. Each per-species pose bundle is opened recursively, and its raw relocatable skeletal records are decoded without requiring Stadium 1's `FRAGMENT` wrapper. Decoded motion tracks are packed against each imported skeleton. Missing or still-unknown pose records no longer block model import; those species use a one-frame rest-pose fallback and are reported separately.
 

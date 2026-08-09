@@ -11,7 +11,7 @@ return {
     added = {
       "locally extracted Crystal front, back, shiny, Unown-form, and animated battle sprites",
       "Crystal species cries and complete Generation II move/weather animation coverage",
-      "HM06 Whirlpool, HM07 Waterfall and deterministic substitutes for trade/time evolutions",
+      "obtainable HM06 Whirlpool and HM07 Waterfall, plus deterministic substitutes for trade/time evolutions",
       "Crystal's separate Day Care slots, animated wandering boarders, compatibility dialogue, outside Egg pickup, inherited moves and DVs, hatching, and first-owned Pokédex entry display",
       "gated roaming beasts and visible Lugia and Ho-Oh sanctuaries using their dedicated Crystal map sprites",
       "seven additional Pokemon Crystal-inspired NPC trades across Kanto",

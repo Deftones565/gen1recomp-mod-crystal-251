@@ -62,6 +62,28 @@ T.eq(run.data.moves.SKETCH.index, 166,
   "Crystal 251 begins registering moves at Generation II index 166")
 T.eq(run.data.constants.dexSize,251,"Pokedex expands to 251")
 T.eq(#run.data.constants.hmMoves,7,"Whirlpool and Waterfall join the HM rules")
+local machineMoves=require("mods.CRYSTAL_251.catalog").tmItems
+for _,def in pairs(run.data.items) do
+  local machine=def.machine
+  if machine and machine.kind=="TM" and machine.number>=1 and machine.number<=50 then
+    T.eq(machine.move,machineMoves[machine.number],
+      ("TM%02d teaches its Crystal move"):format(machine.number))
+  elseif machine and machine.kind=="HM" and machine.number>=1 and machine.number<=7 then
+    T.eq(machine.move,machineMoves[50+machine.number],
+      ("HM%02d teaches its Crystal move"):format(machine.number))
+  end
+end
+T.eq(run.data.items.TM_MEGA_PUNCH.machine.move,"DYNAMICPUNCH",
+  "the existing Gen I TM01 item now teaches Crystal TM01 DynamicPunch")
+T.eq(run.data.items.TM_RAZOR_WIND.machine.move,"HEADBUTT",
+  "the existing Gen I TM02 item now teaches Crystal TM02 Headbutt")
+T.eq(run.data.items.TM_SWORDS_DANCE.machine.move,"CURSE",
+  "the existing Gen I TM03 item now teaches Crystal TM03 Curse")
+local machopTmhm={}
+for _,move in ipairs(run.data.pokemon.MACHOP.tmhm or {}) do machopTmhm[move]=true end
+for _,move in ipairs({"DYNAMICPUNCH","HEADBUTT","CURSE"}) do
+  T.check(machopTmhm[move],"Machop retains Crystal compatibility with "..move)
+end
 T.eq(run.data.pokemon.MAGIKARP.battleScaleBack,1,
   "the live battle registry keeps Crystal back sprites at native scale")
 

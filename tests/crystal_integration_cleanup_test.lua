@@ -44,14 +44,16 @@ ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.9.18"', 1, true) ~= nil,
-  "Crystal development release has version 0.9.18")
+ok(manifestSource:find('"version": "0.9.20"', 1, true) ~= nil,
+  "boot-safe automatic Crystal import has version 0.9.20")
 ok(mainSource:find("cacheFilesPresent", 1, true) ~= nil
    and mainSource:find("content.importFiles", 1, true) ~= nil,
   "loader rejects a cache whose generated Crystal files are missing")
 ok(mainSource:find("Crystal251AutoImport", 1, true) ~= nil
+   and mainSource:find('mod.events:on("screen.pushed"', 1, true) ~= nil
+   and mainSource:find("ev.state.screenId == splash", 1, true) ~= nil
    and mainSource:find("ImportScreen.romPresent()", 1, true) ~= nil,
-  "missing or obsolete Crystal data auto-imports a ROM from baseroms")
+  "missing or obsolete Crystal data waits for the boot screen before auto-importing")
 ok(mainSource:find('label = "CRYSTAL ROM"', 1, true) ~= nil,
   "OPTIONS exposes the manual Crystal ROM importer")
 ok(importSource:find('Screen.ROM_DIR = "baseroms"', 1, true) ~= nil
