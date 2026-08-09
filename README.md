@@ -186,6 +186,11 @@ BattleState queue and party-menu sequences for trapped switching, replacement,
 Pursuit, Baton Pass, Spikes, residual release, simultaneous switches, and
 volatile-state cleanup.
 
+`crystal_exp_share_test.lua` covers Crystal's two-pass EXP.SHARE distribution,
+including participating holders, switch training, multiple or fainted holders,
+stale/fainted participants, rounding, traded and Lucky Egg boosts, level 100,
+double KOs, link battles, and Battle Tower battles.
+
 Audit all 50 TMs and seven HMs—including their ordinary acquisition sources,
 Crystal compatibility, accepted applications, rejection paths, and TM/HM
 consumption contracts—with:

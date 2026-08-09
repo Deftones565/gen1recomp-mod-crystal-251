@@ -10,6 +10,7 @@ local suites = {
   "crystal_gender_test.lua",
   "crystal_daycare_test.lua",
   "crystal_progression_test.lua",
+  "crystal_exp_share_test.lua",
   "crystal_modes_test.lua",
   "crystal_ai_test.lua",
   "crystal_actions_test.lua",

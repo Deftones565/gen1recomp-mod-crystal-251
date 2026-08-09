@@ -44,8 +44,8 @@ ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.9.20"', 1, true) ~= nil,
-  "boot-safe automatic Crystal import has version 0.9.20")
+ok(manifestSource:find('"version": "0.10.1"', 1, true) ~= nil,
+  "boot-safe automatic Crystal import has version 0.10.1")
 ok(mainSource:find("cacheFilesPresent", 1, true) ~= nil
    and mainSource:find("content.importFiles", 1, true) ~= nil,
   "loader rejects a cache whose generated Crystal files are missing")

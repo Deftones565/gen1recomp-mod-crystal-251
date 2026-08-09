@@ -135,24 +135,63 @@ local function expContext(mon, fn)
   return a, b
 end
 
+local function noExperienceBattle(battle)
+  return battle.kind == "link" or battle.linkRole ~= nil
+    or battle.battleTower or battle.inBattleTowerBattle
+    or battle.crystalBattleTower
+end
+Progression.noExperienceBattle = noExperienceBattle
+
 function Progression.awardExp(next, ctx)
   local battle = ctx and ctx.battle
   if not (battle and battle.crystal251Active) then return next(ctx) end
-  local holders = {}
-  for _, mon in ipairs((battle.game.save and battle.game.save.party) or {}) do
-    if (mon.hp or 0) > 0 and mon.heldItem == "EXP_SHARE" then
+  -- GiveExperiencePoints returns immediately in link and Battle Tower
+  -- battles. Do not delegate to Gen I's award path in those modes.
+  if noExperienceBattle(battle) then return end
+
+  local party = (battle.game and battle.game.save
+    and battle.game.save.party) or {}
+  local partySet, holders, seenHolders = {}, {}, {}
+  for _, mon in ipairs(party) do
+    if type(mon) == "table" then partySet[mon] = true end
+    if type(mon) == "table" and not seenHolders[mon]
+        and (tonumber(mon.hp) or 0) > 0 and mon.heldItem == "EXP_SHARE" then
+      seenHolders[mon] = true
       holders[#holders + 1] = mon
     end
   end
+
+  -- Crystal divides by wBattleParticipantsNotFainted, not by every mon that
+  -- has ever faced this opponent. Rebuild the live participant list so stale
+  -- or duplicated context entries cannot dilute the award.
+  local participants, seenParticipants = {}, {}
+  for _, mon in ipairs(ctx.alive or {}) do
+    if partySet[mon] and not seenParticipants[mon]
+        and (tonumber(mon.hp) or 0) > 0 then
+      seenParticipants[mon] = true
+      participants[#participants + 1] = mon
+    end
+  end
+  if #participants == 0 then
+    local active = battle.player and battle.player.mon
+    if partySet[active] and (tonumber(active.hp) or 0) > 0 then
+      participants[1] = active
+    end
+  end
+
   local function apply(mon, split, announce)
     return expContext(mon, function() return ctx.applyShare(mon, split, announce) end)
   end
   if #holders == 0 then
-    for _, mon in ipairs(ctx.alive or {}) do apply(mon, math.max(1,ctx.participants), true) end
-  else
-    for _, mon in ipairs(ctx.alive or {}) do
-      apply(mon, math.max(1,ctx.participants) * 2, true)
+    for _, mon in ipairs(participants) do
+      apply(mon, math.max(1, #participants), true)
     end
+  else
+    for _, mon in ipairs(participants) do
+      apply(mon, math.max(1, #participants) * 2, true)
+    end
+    -- This is deliberately a second pass. A living holder that participated
+    -- receives both awards, matching Crystal's two GiveExperiencePoints calls.
     for _, mon in ipairs(holders) do apply(mon, #holders * 2, "expShare") end
   end
 end

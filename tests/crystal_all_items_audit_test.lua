@@ -76,6 +76,7 @@ local suites = {
   "mods/CRYSTAL_251/tests/crystal_item_behaviors_test.lua",
   "mods/CRYSTAL_251/tests/crystal_held_items_test.lua",
   "mods/CRYSTAL_251/tests/crystal_progression_test.lua",
+  "mods/CRYSTAL_251/tests/crystal_exp_share_test.lua",
   "mods/CRYSTAL_251/tests/crystal_item_progression_test.lua",
   "mods/CRYSTAL_251/tests/move_parity_edge_test.lua",
 }
