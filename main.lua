@@ -119,7 +119,7 @@ local function installItems(mod)
     HEAVY_BALL={"HEAVY BALL",0}, LEVEL_BALL={"LEVEL BALL",0},
     LURE_BALL={"LURE BALL",0}, FAST_BALL={"FAST BALL",0},
     FRIEND_BALL={"FRIEND BALL",0}, MOON_BALL={"MOON BALL",0},
-    LOVE_BALL={"LOVE BALL",0}, PARK_BALL={"PARK BALL",0},
+    LOVE_BALL={"LOVE BALL",0},
     EXP_SHARE={"EXP.SHARE",3000}, LUCKY_EGG={"LUCKY EGG",200},
     BRIGHTPOWDER={"BRIGHTPOWDER",10}, LUCKY_PUNCH={"LUCKY PUNCH",10},
     METAL_POWDER={"METAL POWDER",10}, QUICK_CLAW={"QUICK CLAW",100},
@@ -167,7 +167,7 @@ local function installItems(mod)
     end
   end
   local balls = { "HEAVY_BALL", "LEVEL_BALL", "LURE_BALL", "FAST_BALL",
-    "FRIEND_BALL", "MOON_BALL", "LOVE_BALL", "PARK_BALL" }
+    "FRIEND_BALL", "MOON_BALL", "LOVE_BALL" }
   for _, id in ipairs(balls) do
     if not mod.content.balls:get(id) then
       mod.content.balls:register(id, { randMax=255, tossAnim="ULTRATOSS_ANIM" })
@@ -203,13 +203,23 @@ local function installItemBridge()
   ItemEffects._crystal251BridgeInstalled = true
   local extras = { KINGS_ROCK=true, METAL_COAT=true, DRAGON_SCALE=true,
     SUN_STONE=true, UP_GRADE=true, LINKING_CORD=true }
-  local oldStone, oldNeeds, oldUse = ItemEffects.isStone, ItemEffects.needsTarget, ItemEffects.use
+  local behaviors = require("mods.CRYSTAL_251.item_behaviors")
+  local oldStone, oldNeeds, oldHeals, oldUse = ItemEffects.isStone,
+    ItemEffects.needsTarget, ItemEffects.healsHP, ItemEffects.use
   ItemEffects.isStone = function(id) return extras[id] or oldStone(id) end
-  ItemEffects.needsTarget = function(id, def) return extras[id] or oldNeeds(id, def) end
+  ItemEffects.needsTarget = function(id, def)
+    return extras[id] or behaviors.needsTarget(id) or oldNeeds(id, def)
+  end
+  ItemEffects.healsHP = function(id)
+    return behaviors.healsHP(id) or oldHeals(id)
+  end
   ItemEffects.use = function(data, save, itemId, target, battle, moveIndex, ow)
     if target and target.isEgg then
       return "failed", { "It won't have\nany effect." }
     end
+    local result, messages, extra = behaviors.use(
+      data, itemId, target, battle, moveIndex)
+    if result then return result, messages, extra end
     if not extras[itemId] then return oldUse(data, save, itemId, target, battle, moveIndex, ow) end
     if battle or not target then return "failed", { "It won't have\nany effect." } end
     for _, evo in ipairs((data.pokemon[target.species] or {}).evolutions or {}) do
@@ -475,12 +485,18 @@ local function registerContent(mod, cache)
   local ecology = require("mods.CRYSTAL_251.ecology").install(mod, cache)
   local trades = require("mods.CRYSTAL_251.trades").install(mod)
   local machineProgression = require("mods.CRYSTAL_251.machine_progression").install(mod)
+  local itemProgression = require("mods.CRYSTAL_251.item_progression").install(mod)
+  local itemBehaviors = require("mods.CRYSTAL_251.item_behaviors").install(mod)
+  local heldItemManagement = require("mods.CRYSTAL_251.held_item_management").install(mod)
   local trainerChanges = require("mods.CRYSTAL_251.trainers").install(mod)
   mod.exports.ecology = ecology
   mod.exports.sanctuaries = sanctuaries
   mod.exports.trainerChanges = trainerChanges
   mod.exports.trades = trades
   mod.exports.machineProgression = machineProgression
+  mod.exports.itemProgression = itemProgression
+  mod.exports.itemBehaviors = itemBehaviors
+  mod.exports.heldItemManagement = heldItemManagement
 end
 
 return function(mod)

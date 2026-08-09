@@ -1094,7 +1094,114 @@ case("Crystal held-item hooks affect live battle paths", function()
   smokeBattle.player.cantEscape = true
   T.eq(smokeBattle:runRoll(1, 999), true,
     "Smoke Ball overrides trapping in the live run hook")
-  T.eq(smokeBattle.player.mon.heldItem, nil, "live Smoke Ball escape consumes it")
+  T.eq(smokeBattle.player.mon.heldItem, "SMOKE_BALL",
+    "live Smoke Ball remains held after escape")
+end)
+
+case("Crystal Pack berries and Cleanse Tag use live mod bridges", function()
+  local ItemEffects = require("src.inventory.ItemEffects")
+  T.check(ItemEffects.needsTarget("BERRY", data.items.BERRY),
+    "Pack Berry opens the party target picker")
+  T.check(ItemEffects.healsHP("BERRY_JUICE"),
+    "Pack Berry Juice uses the HP-healing UI path")
+  T.check(ItemEffects.needsTarget("MYSTERYBERRY", data.items.MYSTERYBERRY),
+    "Pack MysteryBerry opens the party target picker")
+  local target = makeMon("PIKACHU", 30, {
+    {id="TACKLE",pp=10,ppUps=0}, {id="SKETCH",pp=0,ppUps=0},
+  })
+  target.stats.hp, target.hp = 100, 40
+
+  local result = ItemEffects.use(data, {player={name="RED"}},
+    "BERRY_JUICE", target)
+  T.eq(result, "consumed", "Pack Berry Juice routes through Crystal item use")
+  T.eq(target.hp, 60, "Pack Berry Juice restores twenty HP")
+
+  target.status = "PSN"
+  result = ItemEffects.use(data, {player={name="RED"}},
+    "PSNCUREBERRY", target)
+  T.eq(result, "consumed", "Pack PSNCUREBERRY cures poison")
+  T.eq(target.status, nil, "Pack PSNCUREBERRY clears poison")
+
+  result = ItemEffects.use(data, {player={name="RED"}},
+    "MYSTERYBERRY", target, nil, 2)
+  T.eq(result, "consumed", "Pack MysteryBerry restores a selected move")
+  T.eq(target.moves[2].pp, 1, "Pack MysteryBerry respects Sketch's PP cap")
+
+  local source = {grass={rate=30,slots={{species="PIDGEY",level=3}}}}
+  local seen
+  run.loader.hooks:call("encounter.roll", function(def)
+    seen = def
+    return nil
+  end, source, {mapId="CRYSTAL_ITEM_TEST",terrain="grass",
+    save={party={{heldItem="CLEANSE_TAG"}}}})
+  T.eq(seen.grass.rate, 15, "live Cleanse Tag hook halves encounter rate")
+  T.eq(source.grass.rate, 30, "live Cleanse Tag hook preserves source data")
+
+  T.eq(data.items.PARK_BALL, nil, "Park Ball is not registered")
+  T.eq(ItemEffects.isBall("PARK_BALL"), false, "Park Ball is not usable")
+end)
+
+case("all Crystal evolution items use the live item bridge", function()
+  local ItemEffects = require("src.inventory.ItemEffects")
+  local evolutionItems = {
+    "KINGS_ROCK", "METAL_COAT", "DRAGON_SCALE",
+    "SUN_STONE", "UP_GRADE", "LINKING_CORD",
+  }
+  for _, item in ipairs(evolutionItems) do
+    local species, destination
+    for id, def in pairs(data.pokemon) do
+      for _, evo in ipairs(def.evolutions or {}) do
+        if evo.method == "ITEM" and evo.item == item then
+          species, destination = id, evo.species
+          break
+        end
+      end
+      if species then break end
+    end
+    T.check(species ~= nil, item .. " has a compatible evolution")
+    if species then
+      local target = {species=species,isEgg=false}
+      local result, _, extra = ItemEffects.use(data, {player={name="RED"}},
+        item, target)
+      T.eq(result, "consumed", item .. " accepts its compatible Pokemon")
+      T.eq(extra and extra.evolveTo, destination,
+        item .. " selects the intended evolution")
+    end
+    local rejected = ItemEffects.use(data, {player={name="RED"}},
+      item, {species="MEW",isEgg=false})
+    T.eq(rejected, "failed", item .. " rejects an incompatible Pokemon")
+  end
+end)
+
+case("Amulet Coin activates through live battle participation", function()
+  local battle = setmetatable({crystal251Active=true,
+    player={mon={heldItem="AMULET_COIN"}}}, {__index=BattleState})
+  battle:markParticipant()
+  T.eq(battle.crystalAmuletCoin, true,
+    "participating while holding Amulet Coin arms doubled prize money")
+
+  local plain = setmetatable({crystal251Active=true,
+    player={mon={heldItem=nil}}}, {__index=BattleState})
+  plain:markParticipant()
+  T.eq(plain.crystalAmuletCoin, nil,
+    "participating without Amulet Coin does not arm doubled prize money")
+end)
+
+case("every active Crystal item can use held-item management", function()
+  local progression = require("mods.CRYSTAL_251.item_progression")
+  local held = require("mods.CRYSTAL_251.held_item_management")
+  local mail = {
+    FLOWER_MAIL=true, SURF_MAIL=true, LITEBLUEMAIL=true, PORTRAITMAIL=true,
+    LOVELY_MAIL=true, EON_MAIL=true, MORPH_MAIL=true, BLUESKY_MAIL=true,
+    MUSIC_MAIL=true, MIRAGE_MAIL=true,
+  }
+  for _, item in ipairs(progression.items) do
+    if not mail[item] then
+      local allowed, reason = held.canGive(data, {species="MEW",isEgg=false}, item)
+      T.check(allowed, item .. " is accepted by held-item management ("
+        .. tostring(reason) .. ")")
+    end
+  end
 end)
 
 -- -------------------------------------------------------------------------
@@ -1992,6 +2099,43 @@ case("Beat Up fails when no party member is eligible", function()
   perform(battle, "BEAT_UP", a.moves[1])
   T.eq(battle.enemy.mon.hp, hp, "Beat Up with no contributors deals no damage")
   T.check(hasText(battle, "failed"), "Beat Up with no contributors reports failure")
+end)
+
+-- Keep the UI probe last: constructing menu screens warms shared renderer
+-- caches, which deliberately has no bearing on any battle-mechanics case.
+case("MysteryBerry uses the live Bag party and move picker", function()
+  local target = {species="PIKACHU",level=30,hp=50,status=nil,
+    stats={hp=100,attack=50,defense=50,speed=50,special=50},
+    dvs={attack=8,defense=8,speed=8,special=8},
+    statExp={hp=0,attack=0,defense=0,speed=0,special=0},
+    moves={{id="TACKLE",pp=10,ppUps=0},{id="SKETCH",pp=0,ppUps=0}}}
+  local game = makeGame({target})
+  game.save.inventory.MYSTERYBERRY = 1
+  game.save.bagOrder = {"MYSTERYBERRY"}
+
+  local bag = require("src.ui.BagMenu").new(game)
+  local row = bag.items[1]
+  T.eq(row.value, "MYSTERYBERRY", "MysteryBerry appears in the live Bag")
+  bag.onChoose(row, bag)
+  local useToss = game.stack:top()
+  T.check(useToss and useToss.items and useToss.items[1].label == "USE",
+    "MysteryBerry opens the normal USE/TOSS menu")
+
+  game.stack:pop()
+  useToss.items[1].onSelect()
+  local partyPicker = game.stack:top()
+  T.check(partyPicker and partyPicker.pickOnly,
+    "MysteryBerry USE opens a party picker")
+  game.stack:pop()
+  partyPicker.onSwitch(target)
+  local movePicker = game.stack:top()
+  T.eq(movePicker.title, "Which move?",
+    "MysteryBerry opens the selected Pokemon's move picker")
+  movePicker.onChoose(movePicker.items[2], movePicker)
+
+  T.eq(target.moves[2].pp, 1, "MysteryBerry restores the chosen move through UI")
+  T.eq(game.save.inventory.MYSTERYBERRY, nil,
+    "successful MysteryBerry UI use consumes one from the Bag")
 end)
 
 run.release()

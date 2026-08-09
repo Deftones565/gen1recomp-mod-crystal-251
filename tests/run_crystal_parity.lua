@@ -15,6 +15,8 @@ local suites = {
   "crystal_actions_test.lua",
   "crystal_scheduler_test.lua",
   "crystal_held_items_test.lua",
+  "crystal_held_item_management_test.lua",
+  "crystal_item_progression_test.lua",
   "crystal_damage_test.lua",
   "crystal_stats_test.lua",
   "crystal_switching_test.lua",

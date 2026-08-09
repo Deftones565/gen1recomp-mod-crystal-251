@@ -183,7 +183,6 @@ function CrystalItems.run(next, ctx)
   local battle = ctx and ctx.battle
   local player = battle and battle.player
   if held(player) == "SMOKE_BALL" then
-    CrystalItems.consume(battle, player)
     return true
   end
   if player and player.cantEscape then return false end

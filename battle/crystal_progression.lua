@@ -5,7 +5,7 @@ local Progression = {}
 local BALLS = {
   MASTER_BALL=true, ULTRA_BALL=true, GREAT_BALL=true, POKE_BALL=true,
   HEAVY_BALL=true, LEVEL_BALL=true, LURE_BALL=true, FAST_BALL=true,
-  FRIEND_BALL=true, MOON_BALL=true, LOVE_BALL=true, PARK_BALL=true,
+  FRIEND_BALL=true, MOON_BALL=true, LOVE_BALL=true,
   SAFARI_BALL=true,
 }
 Progression.BALLS = BALLS
@@ -46,7 +46,7 @@ function Progression.modifiedCatchRate(battle, ball, target, targetDef, rateOver
   local player = battle and battle.player and battle.player.mon
   if ball == "ULTRA_BALL" then
     rate = multiplyRate(rate, 2)
-  elseif ball == "GREAT_BALL" or ball == "SAFARI_BALL" or ball == "PARK_BALL" then
+  elseif ball == "GREAT_BALL" or ball == "SAFARI_BALL" then
     rate = multiplyRate(rate, 1.5)
   elseif ball == "HEAVY_BALL" then
     local kg = weightKg(targetDef)

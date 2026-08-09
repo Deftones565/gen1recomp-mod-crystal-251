@@ -170,7 +170,7 @@ local smokeBattle = battle(smoke, battler("MEWTWO", false, nil))
 smoke.cantEscape = true
 eq(Items.run(function() return false end, { battle=smokeBattle }), true,
   "Smoke Ball guarantees escape even while trapped")
-eq(smoke.mon.heldItem, nil, "Smoke Ball is consumed on escape")
+eq(smoke.mon.heldItem, "SMOKE_BALL", "Smoke Ball remains held after escape")
 
 local focus = battler("MEW", true, "FOCUS_BAND", 80, 80)
 local focusBattle = battle(focus, battler("DITTO", false), { 29 })

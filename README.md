@@ -210,6 +210,31 @@ POKEPORT_TOUCH=0 POKEPORT_SPEED=20 CRYSTAL_TM_VISUAL_ALL_PAIRS=0 \
 Set `CRYSTAL_TM_VISUAL_ALL_PAIRS=1` to exercise every one of the imported
 Crystal compatibility pairs instead of one positive/negative pair per machine.
 
+Audit held-item management across every live item definition, then capture the
+real Party `ITEM` UI for Give, Switch, Take, Mail/key-item/TM rejection, Eggs,
+and full-bag protection with:
+
+```bash
+SHOT_DIR=/tmp/crystal-held-item-visual \
+POKEPORT_DRIVER=mods/CRYSTAL_251/tests/crystal_held_item_visual_driver.lua \
+POKEPORT_TOUCH=0 POKEPORT_SPEED=20 \
+  love .
+```
+
+The driver restores the original party and bag references and never saves its
+test state.
+
+Crystal-only items are distributed through themed Kanto marts, with an early
+one-time EXP.SHARE item ball beside Cerulean Gym. Its real-map visual pickup
+test is:
+
+```bash
+SHOT_DIR=/tmp/crystal-item-progression \
+POKEPORT_DRIVER=mods/CRYSTAL_251/tests/crystal_item_progression_visual_driver.lua \
+POKEPORT_TOUCH=0 POKEPORT_SPEED=20 \
+  love .
+```
+
 - Stadium 2 compatibility reads the National Dex model table and the separate Pokemon pose table. Each per-species pose bundle is opened recursively, and its raw relocatable skeletal records are decoded without requiring Stadium 1's `FRAGMENT` wrapper. Decoded motion tracks are packed against each imported skeleton. Missing or still-unknown pose records no longer block model import; those species use a one-frame rest-pose fallback and are reported separately.
 
 - Stadium 2 battle meshes are CPU-skinned at a maximum presentation rate of

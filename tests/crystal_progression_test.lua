@@ -41,7 +41,6 @@ local b=battle(player,target)
 local def={catchRate=100,dexEntry={weight=10140}}
 eq(P.modifiedCatchRate(b,"ULTRA_BALL",target,def),200,"Ultra Ball doubles")
 eq(P.modifiedCatchRate(b,"GREAT_BALL",target,def),150,"Great Ball multiplies by 1.5")
-eq(P.modifiedCatchRate(b,"PARK_BALL",target,def),150,"Park Ball multiplies by 1.5")
 eq(P.modifiedCatchRate(b,"POKE_BALL",target,def),100,"Poke Ball is neutral")
 eq(P.modifiedCatchRate(b,"HEAVY_BALL",target,{catchRate=100,dexEntry={weight=1000}}),80,
   "light target loses twenty catch points")
@@ -186,7 +185,7 @@ ok(not BattleState.runRollVanilla(run,100,50),"Mean Look blocks escape")
 
 local ItemEffects=require("src.inventory.ItemEffects")
 for _,id in ipairs({"HEAVY_BALL","LEVEL_BALL","LURE_BALL","FAST_BALL",
-  "FRIEND_BALL","MOON_BALL","LOVE_BALL","PARK_BALL"}) do
+  "FRIEND_BALL","MOON_BALL","LOVE_BALL"}) do
   ok(ItemEffects.isBall(id),id.." is usable as a battle ball")
 end
 
