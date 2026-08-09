@@ -1,4 +1,5 @@
 local Effects = {}
+Effects.CHANCE_EFFECTS = {}
 
 -- Crystal-only effects use stable byte ids. Most moves 1..165 still use the
 -- underlying effect registry, but the split-stat milestone migrates the old
@@ -22,6 +23,22 @@ function Effects.install(mod)
     local id = ("CRYSTAL_EFFECT_%02X"):format(code)
     local def = extra or {}
     def.kind = kind or def.kind or "full"
+    -- Keep secondary-effect probability inside CRYSTAL_251.  Released engine
+    -- builds do not interpret the newer useEffectChance record hint, so
+    -- relying on it makes every imported chance-based effect unconditional.
+    -- Consuming the byte here also keeps the mod compatible with engines that
+    -- do understand the hint: remove it from the registered record so the
+    -- chance is never rolled twice.
+    if def.useEffectChance and run ~= nil then
+      local effectRun = run
+      Effects.CHANCE_EFFECTS[id] = true
+      def.useEffectChance = nil
+      run = function(ctx)
+        local chance = ctx.move.effectChance or 0
+        if chance <= 0 or ctx.rng(0, 255) >= chance then return {} end
+        return effectRun(ctx)
+      end
+    end
     if run ~= nil then def.run = run end
     mod.content.move_effects:register(id, def)
   end

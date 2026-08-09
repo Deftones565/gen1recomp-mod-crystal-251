@@ -46,6 +46,10 @@ eq(MultiTurn.rageMultiplier(255), 256, "Rage's byte counter reaches 256x")
 local moves = {
   DOUBLESLAP={ id="DOUBLESLAP", index=3, effect="CRYSTAL_EFFECT_1D",
     power=15, type="NORMAL", category="physical" },
+  DOUBLE_KICK={ id="DOUBLE_KICK", index=24, effect="CRYSTAL_EFFECT_2C",
+    power=30, type="FIGHTING", category="physical" },
+  BONEMERANG={ id="BONEMERANG", index=155, effect="CRYSTAL_EFFECT_2C",
+    power=50, type="GROUND", category="physical" },
   TWINEEDLE={ id="TWINEEDLE", index=41, effect="CRYSTAL_EFFECT_4D",
     power=25, type="BUG", category="physical", effectChance=51 },
   TRIPLE_KICK={ id="TRIPLE_KICK", index=167, effect="CRYSTAL_EFFECT_68",
@@ -66,6 +70,8 @@ MultiTurn.configure({ moves=moves, scripts=scripts, interpreter=interpreter })
 
 local expectedFamilies = {
   DOUBLESLAP={ "MultiHit", "checkobedience" },
+  DOUBLE_KICK={ "MultiHit", "checkobedience" },
+  BONEMERANG={ "MultiHit", "checkobedience" },
   TWINEEDLE={ "PoisonMultiHit", "checkobedience" },
   TRIPLE_KICK={ "TripleKick", "checkobedience" },
   ROLLOUT={ "Rollout", "checkrollout" },
@@ -148,6 +154,21 @@ local function makeContext(id, opts)
     end,
   }
   return ctx, battle, user, target
+end
+
+-- Double Kick and Bonemerang use Crystal's fixed-two-hit command even though
+-- the decoded script family is also named MultiHit.  A high RNG sequence must
+-- not turn either move into a 2-5-hit move.
+for _, id in ipairs({ "DOUBLE_KICK", "BONEMERANG" }) do
+  local ctx, battle, _, target = makeContext(id, {
+    rng=sequence({ 3, 3 }, 3),
+    damageRows={ { damage=10 }, { damage=10 }, { damage=10 },
+      { damage=10 }, { damage=10 } },
+  })
+  local state = MultiTurn.perform(ctx)
+  eq(state.hits, 2, id .. " always lands exactly two hits")
+  eq(battle.damageAt, 2, id .. " calculates damage exactly twice")
+  eq(target.mon.hp, 980, id .. " applies exactly two damage instances")
 end
 
 -- One accuracy check, but a fresh critical/damage calculation for every hit.

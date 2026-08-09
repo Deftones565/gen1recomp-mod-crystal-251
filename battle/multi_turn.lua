@@ -38,6 +38,15 @@ local EFFECT_OVERRIDES = {
 }
 MultiTurn.EFFECT_OVERRIDES = EFFECT_OVERRIDES
 
+-- BattleCommand_DoubleHit (effect $2c) and BattleCommand_PoisonMultiHit
+-- always make exactly two strikes.  They deliberately share the generic
+-- "MultiHit" script-family label with BattleCommand_EndLoop ($1d), so the
+-- label alone cannot select Crystal's 2-5-hit distribution.
+local FIXED_TWO_HIT_EFFECTS = {
+  CRYSTAL_EFFECT_2C=true,
+  CRYSTAL_EFFECT_4D=true,
+}
+
 local function displayName(battler)
   if not battler then return "the target" end
   return battler.isPlayer and battler.name or ("Enemy " .. tostring(battler.name))
@@ -187,7 +196,9 @@ end
 local function resolveOrdinaryMulti(state)
   local ctx = state.ctx
   local family = state.script.effectName
-  local hits = family == "MultiHit" and MultiTurn.twoToFiveCount(ctx.rng) or 2
+  local fixedTwo = FIXED_TWO_HIT_EFFECTS[ctx.move.effect] == true
+  local hits = family == "MultiHit" and not fixedTwo
+    and MultiTurn.twoToFiveCount(ctx.rng) or 2
   if not accuracy(ctx) then miss(ctx); state.stop=true; state.failed=true; return end
 
   local poison = family == "PoisonMultiHit"

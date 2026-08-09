@@ -14,15 +14,25 @@ file:close()
 
 local addresses = require("mods.CRYSTAL_251.addresses")
 local revision = addresses.revisions["f2f52230b536214ef7c9924f483392993e226cfb"]
+local generatedFiles = {}
 local cache = require("mods.CRYSTAL_251.lib.extractor").extract(raw, revision, {
-  writePicture = function() end,
+  writePicture = function(generatedPath)
+    generatedFiles[#generatedFiles + 1] = generatedPath
+  end,
   writeAudio = function() end,
 })
+cache.importFiles = generatedFiles
 local encoded = require("mods.CRYSTAL_251.lib.json").encode(cache)
 
+local generatedSet = {}
+for _, generatedPath in ipairs(generatedFiles) do
+  generatedSet[generatedPath] = true
+end
 local oldInfo, oldRead = love.filesystem.getInfo, love.filesystem.read
 love.filesystem.getInfo = function(p, kind)
-  if p == "crystal_251/content.json" then return { type = "file" } end
+  if p == "crystal_251/content.json" or generatedSet[p] then
+    return { type = "file" }
+  end
   return oldInfo(p, kind)
 end
 love.filesystem.read = function(p)
@@ -188,6 +198,88 @@ end
 local function activeIs(battle, mon)
   return battle.player and battle.player.mon == mon
 end
+
+-- -------------------------------------------------------------------------
+-- Reported move-routing regressions
+-- -------------------------------------------------------------------------
+
+case("Thunder Shock uses Crystal's secondary-effect chance", function()
+  local move = data.moves.THUNDERSHOCK
+  local record = data.move_effects[move.effect]
+  T.eq(move.effect, "CRYSTAL_EFFECT_06",
+    "Thunder Shock routes through Crystal's paralysis-hit record")
+  T.eq(move.effectChance, 25,
+    "Thunder Shock keeps Crystal's 25/256 paralysis chance")
+  T.eq(record.useEffectChance, nil,
+    "Thunder Shock's chance gate is owned by the mod")
+
+  local function useWithSecondaryRoll(roll)
+    local battle = newBattle("THUNDERSHOCK")
+    battle.computeDamage = function()
+      return 10, { crit=false, typeMult=10 }
+    end
+    -- Accuracy consumes the first byte; the damaging pipeline's secondary
+    -- chance consumes the second.
+    battle.rng = seq({ 0, roll }, 255)
+    perform(battle, "THUNDERSHOCK")
+    return battle.enemy.mon.status
+  end
+
+  T.eq(useWithSecondaryRoll(24), "PAR",
+    "Thunder Shock paralyzes below its 25/256 boundary")
+  T.eq(useWithSecondaryRoll(25), nil,
+    "Thunder Shock does not paralyze at its 25/256 boundary")
+  T.eq(useWithSecondaryRoll(255), nil,
+    "Thunder Shock can deal damage without paralysis")
+end)
+
+case("enemy Poison Sting uses Crystal's secondary-effect chance", function()
+  local move = data.moves.POISON_STING
+  local record = data.move_effects[move.effect]
+  T.eq(move.effect, "CRYSTAL_EFFECT_02",
+    "Poison Sting routes through Crystal's poison-hit record")
+  T.eq(move.effectChance, 76,
+    "Poison Sting keeps Crystal's 76/256 poison chance")
+  T.eq(record.useEffectChance, nil,
+    "Poison Sting's chance gate is owned by the mod")
+
+  local function enemyUseWithSecondaryRoll(roll)
+    local battle = newBattle("TACKLE")
+    battle.computeDamage = function()
+      return 10, { crit=false, typeMult=10 }
+    end
+    battle.rng = seq({ 0, roll }, 255)
+    perform(battle, "POISON_STING", { id="POISON_STING", pp=35 },
+      battle.enemy, battle.player)
+    return battle.player.mon.status
+  end
+
+  T.eq(enemyUseWithSecondaryRoll(75), "PSN",
+    "enemy Poison Sting poisons below its 76/256 boundary")
+  T.eq(enemyUseWithSecondaryRoll(76), nil,
+    "enemy Poison Sting does not poison at its 76/256 boundary")
+  T.eq(enemyUseWithSecondaryRoll(255), nil,
+    "enemy Poison Sting can deal damage without poison")
+end)
+
+case("Double Kick and Bonemerang are fixed two-hit moves", function()
+  for _, moveId in ipairs({ "DOUBLE_KICK", "BONEMERANG" }) do
+    local battle = newBattle(moveId)
+    local calculations = 0
+    battle.computeDamage = function()
+      calculations = calculations + 1
+      return 10, { crit=false, typeMult=10 }
+    end
+    -- This produces five hits for the ordinary $1d family.  The fixed $2c
+    -- family must not consume it as a hit-count roll.
+    battle.rng = seq({ 3, 3, 3, 3 }, 3)
+    local before = battle.enemy.mon.hp
+    perform(battle, moveId)
+    T.eq(calculations, 2, moveId .. " calculates exactly two strikes")
+    T.eq(before - battle.enemy.mon.hp, 20,
+      moveId .. " applies exactly two strikes")
+  end
+end)
 
 local function assertBlockedSwitch(battle, bench, label, stale)
   local previous = battle.player
