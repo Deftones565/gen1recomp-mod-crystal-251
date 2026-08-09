@@ -91,7 +91,7 @@ function Ecology.install(mod, cache)
     return out
   end, 100)
 
-  local dramatic = mod.find("DRAMATIC_SHAPE")
+  local dramatic = mod.find("DRAMATIC_SHAPE") or mod.find("DRAMALESS_SHAPE")
   if dramatic then providerObserved = true end
 
   local function activePeriod()

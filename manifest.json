@@ -16,6 +16,7 @@
   "dependencies": [],
   "optional_dependencies": [
     "DRAMATIC_SHAPE",
+    "DRAMALESS_SHAPE",
     "shiny_indicators",
     "quality_of_life",
     "roaming_events"

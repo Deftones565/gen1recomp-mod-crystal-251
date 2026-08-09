@@ -92,12 +92,13 @@ ok(mainSource:find('require("mods.CRYSTAL_251.lib.stadium2_bridge")', 1, true) ~
 ok(stadium2Source:find('Bridge.COUNT = 251', 1, true) ~= nil,
   "Stadium 2 bridge covers all 251 Pokemon")
 ok(stadium2Source:find('species <= 251', 1, true) ~= nil,
-  "the cloned DRAMATIC_SHAPE pack reader accepts the expanded dex")
+  "the cloned DRAMATIC_SHAPE/DRAMALESS_SHAPE pack reader accepts the expanded dex")
 ok(stadium2Source:find('Bridge.NORMAL_DIR', 1, true) ~= nil
    and stadium2Source:find('Bridge.SHINY_DIR', 1, true) ~= nil,
   "normal and shiny Stadium 2 packs are stored separately")
 ok(not stadium2Source:find('mods/DRAMATIC_SHAPE', 1, true),
-  "compatibility does not patch DRAMATIC_SHAPE files on disk")
+   or not stadium2Source:find('mods/DRAMALESS_SHAPE', 1, true),
+  "compatibility does not patch DRAMATIC_SHAPE/DRAMALESS_SHAPE files on disk")
 ok(importSource:find("CrystalCry.render(raw, definition)", 1, true) ~= nil,
   "Crystal imports use the mod-local cry renderer")
 ok(not importSource:find("ChipSynth", 1, true),

@@ -324,16 +324,16 @@ local function fragmentParser(V, sourceBase)
   local cached = fragmentParsers[sourceBase]
   if cached then return cached end
   local source = assert(V.mod:read("lib/StadiumFragment.lua"),
-    "DRAMATIC_SHAPE StadiumFragment.lua is unavailable")
+    "DRAMATIC_SHAPE/DRAMALESS_SHAPE StadiumFragment.lua is unavailable")
   local changed
   source, changed = source:gsub("local BASE = 0x8FF00000",
     ("local BASE = 0x%08X"):format(sourceBase), 1)
-  assert(changed == 1, "unsupported DRAMATIC_SHAPE StadiumFragment base")
+  assert(changed == 1, "unsupported DRAMATIC_SHAPE/DRAMALESS_SHAPE StadiumFragment base")
 
   -- Stadium 2 keeps a Pokemon's geometry and motion banks in separate
   -- FRAGMENT entries. Inject two entry points into the private clone while
   -- all of StadiumFragment's local readers (newModel/newAnim/newAux/compress)
-  -- are still in lexical scope. DRAMATIC_SHAPE's source and module object are
+  -- are still in lexical scope. DRAMATIC_SHAPE/DRAMALESS_SHAPE's source and module object are
   -- never edited.
   local extension = [==[
 
@@ -777,14 +777,14 @@ end
   local injected
   source, injected = source:gsub("\nreturn StadiumFragment%s*$",
     function() return extension .. "\nreturn StadiumFragment\n" end, 1)
-  assert(injected == 1, "unsupported DRAMATIC_SHAPE StadiumFragment footer")
+  assert(injected == 1, "unsupported DRAMATIC_SHAPE/DRAMALESS_SHAPE StadiumFragment footer")
 
   local compile = loadstring or load
   local chunk, err = compile(source,
     ("@STADIUM2_SHARED/StadiumFragment_%08X.lua"):format(sourceBase))
   assert(chunk, err)
   local proxy = { mod = V.mod, require = V.require, data = V.data, path = V.path }
-  local parser = assert(chunk(proxy), "could not clone DRAMATIC_SHAPE StadiumFragment")
+  local parser = assert(chunk(proxy), "could not clone DRAMATIC_SHAPE/DRAMALESS_SHAPE StadiumFragment")
   fragmentParsers[sourceBase] = parser
   return parser
 end
@@ -897,10 +897,10 @@ end
 
 local function clonePack(V, cacheDir, label)
   local source = assert(V.mod:read("lib/StadiumPack.lua"),
-    "DRAMATIC_SHAPE StadiumPack.lua is unavailable")
+    "DRAMATIC_SHAPE/DRAMALESS_SHAPE StadiumPack.lua is unavailable")
   local changed
   source, changed = source:gsub("species <= 151", "species <= 251", 1)
-  assert(changed == 1, "unsupported DRAMATIC_SHAPE StadiumPack limit")
+  assert(changed == 1, "unsupported DRAMATIC_SHAPE/DRAMALESS_SHAPE StadiumPack limit")
   local compile = loadstring or load
   local chunk, err = compile(source,
     "@STADIUM2_SHARED/" .. tostring(label) .. "/StadiumPack.lua")
@@ -993,11 +993,11 @@ end
 
 -- Stadium 2 has a small number of display-list groups that deliberately draw
 -- without a texture. The Stadium 1 pack format always expects a texture index,
--- so retaining DRAMATIC_SHAPE's old "textures > 0" gate drops otherwise valid
+-- so retaining DRAMATIC_SHAPE/DRAMALESS_SHAPE's old "textures > 0" gate drops otherwise valid
 -- geometry (Magcargo in the US ROM is the known case). Attach supported
 -- procedural effects first, then give every still-untextured primitive a 1x1
 -- owner-supplied palette material. This changes only the cloned shared
--- import path; DRAMATIC_SHAPE's own importer and files remain untouched.
+-- import path; DRAMATIC_SHAPE/DRAMALESS_SHAPE's own importer and files remain untouched.
 local function normaliseDrawableModel(model, species, Fx)
   model.bones = type(model.bones) == "table" and model.bones or {}
   model.prims = type(model.prims) == "table" and model.prims or {}
@@ -1141,7 +1141,7 @@ local function genericAnimationTable(data, Build)
   local animations = data.anims or {}
   if #animations == 0 then
     -- Stadium 2 stores the Pokemon mesh/skeleton and its animation banks in
-    -- separate archives. DRAMATIC_SHAPE's Stadium 1 parser can already read
+    -- separate archives. DRAMATIC_SHAPE/DRAMALESS_SHAPE's Stadium 1 parser can already read
     -- the mesh fragment, but naturally finds no embedded animations there.
     -- Keep the model usable while the separate Stadium 2 animation format is
     -- not yet decoded by giving it one one-frame bind-pose loop. A track-less
@@ -2163,7 +2163,7 @@ local function patchModels(V, Pack)
     return true
   end
 
-  -- DRAMATIC_SHAPE's original pack has 165 move rows because it targets Red
+  -- DRAMATIC_SHAPE/DRAMALESS_SHAPE's original pack has 165 move rows because it targets Red
   -- and Blue. Crystal has 251 move ids. Keep its exact table lookup for the
   -- original range, then route Generation II moves through the imported
   -- Stadium 2 default attack slot instead of leaving the model motionless.
@@ -2968,7 +2968,7 @@ local function patchPicker(V, Install)
   -- directly from the options input callback: SDL may still own pointer
   -- capture until the matching mouse-up event is pumped, leaving the dialog
   -- behind an unresponsive captured cursor. Queue it for the next released
-  -- frame; DRAMATIC_SHAPE already polls this module every update.
+  -- frame; DRAMATIC_SHAPE/DRAMALESS_SHAPE already polls this module every update.
   local pendingDialogGame = nil
   local pendingDialogArmed = false
 
@@ -3204,7 +3204,7 @@ function Bridge.install(mod, cache, dramatic, options)
   end
   installedFor = V
   if mod and mod.log then
-    mod.log:info("DRAMATIC_SHAPE will use Pokemon Stadium 2 models for Pokemon 1-%d (%s)",
+    mod.log:info("DRAMATIC_SHAPE/DRAMALESS_SHAPE will use Pokemon Stadium 2 models for Pokemon 1-%d (%s)",
       Bridge.COUNT, tostring(Bridge.OWNER_NAME))
   end
   return Bridge

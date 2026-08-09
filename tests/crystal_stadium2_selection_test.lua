@@ -16,15 +16,33 @@ local function eq(got, want, message)
   end
 end
 local function read(path)
-  local file = assert(io.open(path, "rb"))
+  local file = io.open(path, "rb")
+  if not file then return nil end
   local value = file:read("*a")
   file:close()
   return value
 end
 
 local Bridge = require("mods.CRYSTAL_251.lib.stadium2_bridge")
-local stadiumPackSource = read("mods/DRAMATIC_SHAPE/lib/StadiumPack.lua")
-local stadiumFragmentSource = read("mods/DRAMATIC_SHAPE/lib/StadiumFragment.lua")
+
+-- Either mod supplies the same lib/StadiumPack.lua and lib/StadiumFragment.lua;
+-- try DRAMATIC_SHAPE first and fall back to DRAMALESS_SHAPE. Users are
+-- expected to have exactly one of the two installed.
+local DRAMATIC_DIR = "mods/DRAMATIC_SHAPE"
+local DRAMALESS_DIR = "mods/DRAMALESS_SHAPE"
+
+local dramaticDir = DRAMATIC_DIR
+local stadiumPackSource = read(DRAMATIC_DIR .. "/lib/StadiumPack.lua")
+if not stadiumPackSource then
+  dramaticDir = DRAMALESS_DIR
+  stadiumPackSource = read(DRAMALESS_DIR .. "/lib/StadiumPack.lua")
+end
+assert(stadiumPackSource,
+  "StadiumPack.lua not found under " .. DRAMATIC_DIR .. " or " .. DRAMALESS_DIR)
+
+local stadiumFragmentSource = read(dramaticDir .. "/lib/StadiumFragment.lua")
+assert(stadiumFragmentSource,
+  "StadiumFragment.lua not found under " .. dramaticDir)
 
 local battleValue = "flatB"
 local forcedOG = false
@@ -65,7 +83,7 @@ function dramaticMod:read(path)
   if path == "lib/StadiumPack.lua" then return stadiumPackSource end
   if path == "lib/StadiumFragment.lua" then return stadiumFragmentSource end
 end
-local V = { mod = dramaticMod, path = "mods/DRAMATIC_SHAPE" }
+local V = { mod = dramaticMod, path = dramaticDir }
 function V.require(name) return assert(modules[name], name) end
 
 _G.love = { filesystem = {
@@ -78,7 +96,7 @@ _G.love = { filesystem = {
 } }
 
 ok(Bridge.install({ log=dramaticMod.log }, { species={} }, { exports={ lib=V } }),
-  "Stadium 2 selector installs through DRAMATIC_SHAPE exports")
+  "Stadium 2 selector installs through " .. dramaticDir .. " exports")
 eq(modules.OverworldBattle.setting.labels[3], "STADIUM 2 A",
   "map-stage model rung is visibly labelled Stadium 2")
 eq(modules.OverworldBattle.setting.labels[4], "STADIUM 2 B",

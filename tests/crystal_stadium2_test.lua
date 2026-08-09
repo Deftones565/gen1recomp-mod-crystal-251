@@ -16,7 +16,8 @@ local function eq(got, want, message)
   end
 end
 local function read(path)
-  local file = assert(io.open(path, "rb"))
+  local file = io.open(path, "rb")
+  if not file then return nil end
   local value = file:read("*a")
   file:close()
   return value
@@ -292,8 +293,24 @@ ok(emptyErr:find("bones=1 prims=0 textures=0", 1, true) ~= nil,
 ok(emptyErr:find("0x81234567", 1, true) ~= nil,
   "drawable failure reports unresolved effect callbacks")
 
-local stadiumPackSource = read("mods/DRAMATIC_SHAPE/lib/StadiumPack.lua")
-local stadiumFragmentSource = read("mods/DRAMATIC_SHAPE/lib/StadiumFragment.lua")
+-- Either mod supplies the same lib/StadiumPack.lua and lib/StadiumFragment.lua;
+-- try DRAMATIC_SHAPE first and fall back to DRAMALESS_SHAPE. Users are
+-- expected to have exactly one of the two installed.
+local DRAMATIC_DIR = "mods/DRAMATIC_SHAPE"
+local DRAMALESS_DIR = "mods/DRAMALESS_SHAPE"
+
+local dramaticDir = DRAMATIC_DIR
+local stadiumPackSource = read(DRAMATIC_DIR .. "/lib/StadiumPack.lua")
+if not stadiumPackSource then
+  dramaticDir = DRAMALESS_DIR
+  stadiumPackSource = read(DRAMALESS_DIR .. "/lib/StadiumPack.lua")
+end
+assert(stadiumPackSource,
+  "StadiumPack.lua not found under " .. DRAMATIC_DIR .. " or " .. DRAMALESS_DIR)
+
+local stadiumFragmentSource = read(dramaticDir .. "/lib/StadiumFragment.lua")
+assert(stadiumFragmentSource,
+  "StadiumFragment.lua not found under " .. dramaticDir)
 local modules = {
   StadiumPack = {
     SLOT = { idle=1, attack_default=2, faint=3, entrance=4 },
@@ -375,11 +392,11 @@ function fakeDramaticMod:read(path)
   if path == "lib/StadiumFragment.lua" then return stadiumFragmentSource end
   return nil
 end
-local fakeV = { mod=fakeDramaticMod, path="mods/DRAMATIC_SHAPE" }
+local fakeV = { mod=fakeDramaticMod, path=dramaticDir }
 function fakeV.require(name) return assert(modules[name], name) end
 local linkedParser = T.fragmentParser(fakeV, sourceBase)
 ok(type(linkedParser) == "table" and type(linkedParser.extract) == "function",
-  "DRAMATIC_SHAPE's fragment reader is cloned for Stadium 2's link base")
+  dramaticDir .. "'s fragment reader is cloned for Stadium 2's link base")
 ok(type(linkedParser.inspect) == "function"
     and type(linkedParser.extractAnimations) == "function"
     and type(linkedParser.inspectAny) == "function"
@@ -697,7 +714,7 @@ modules.OverworldBattle = {
 }
 
 ok(Bridge.install(fakeCrystalMod, cache, { exports={ lib=fakeV } }),
-  "bridge installs through DRAMATIC_SHAPE's exported module namespace")
+  "bridge installs through " .. dramaticDir .. "'s exported module namespace")
 
 -- Stadium 2 models leave through a matching ball-in transition. A battler
 -- identity change keeps the outgoing rig alive while it contracts, including
@@ -911,7 +928,7 @@ package.loaded["src.battle.BattleState"] = savedBattleStateModule
 eq(modules.StadiumInstall.COUNT, 251,
   "installed bridge replaces the 151-model importer with Stadium 2's 251")
 eq(modules.StadiumRomPick.LABEL, "STADIUM 2 ROM",
-  "DRAMATIC_SHAPE options identify the Stadium 2 cartridge")
+  "DRAMATIC_SHAPE/DRAMALESS_SHAPE options identify the Stadium 2 cartridge")
 local savedRomPath = modules.StadiumInstall.romPath
 local savedBegin = modules.StadiumInstall.begin
 local savedCanDialog = modules.StadiumRomPick.canDialog
@@ -982,7 +999,7 @@ modules.StadiumInstall.begin = savedBegin
 modules.StadiumRomPick.canDialog = savedCanDialog
 modules.StadiumRomPick.choose = savedChoose
 ok(type(modules.StadiumMon.setSpecies) == "function",
-  "Stadium model selection is patched without changing DRAMATIC_SHAPE files")
+  "Stadium model selection is patched without changing DRAMATIC_SHAPE/DRAMALESS_SHAPE files")
 ok(type(modules.StadiumMon.attack) == "function",
   "Stadium model attack selection is extended for Crystal's 251 moves")
 ok(type(modules.StadiumMon.build) == "function",
@@ -1131,9 +1148,9 @@ ok(modules.StadiumInstall.ready(),
 
 local bridgeSource = read("mods/CRYSTAL_251/lib/stadium2_bridge.lua")
 ok(bridgeSource:find('V.mod:read("lib/StadiumPack.lua")', 1, true) ~= nil,
-  "bridge clones DRAMATIC_SHAPE's pack reader through its public mod object")
+  "bridge clones DRAMATIC_SHAPE/DRAMALESS_SHAPE's pack reader through its public mod object")
 ok(bridgeSource:find('V.mod:read("lib/StadiumFragment.lua")', 1, true) ~= nil,
-  "bridge clones DRAMATIC_SHAPE's parser for each Stadium 2 fragment link base")
+  "bridge clones DRAMATIC_SHAPE/DRAMALESS_SHAPE's parser for each Stadium 2 fragment link base")
 ok(bridgeSource:find('source:gsub("species <= 151", "species <= 251"', 1, true) ~= nil,
   "only the cloned reader has its dex limit expanded")
 ok(not bridgeSource:find("rebaseFragment", 1, true),
