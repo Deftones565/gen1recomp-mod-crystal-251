@@ -20,8 +20,8 @@
     "quality_of_life",
     "roaming_events"
   ],
-  "conflicts": [
-    "kanto_ascended"
+  "incompatible": [
+    "trainer_rematch"
   ],
   "affects_link": true,
   "description": "Imports Pokemon Crystal data from the user's ROM and adds complete Generation II battles, the split-attendant Crystal Day Care, animated boarders, and breeding, ROM-derived species presentation, 251 Pokemon, expanded ecology, and legendary sanctuaries.",
