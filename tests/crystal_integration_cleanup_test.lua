@@ -46,6 +46,8 @@ ok(not mainSource:find("local supported = { [22]=true }", 1, true)
   "loader rejects caches without the current import manifest")
 ok(manifestSource:find('"version": "0.10.1"', 1, true) ~= nil,
   "boot-safe automatic Crystal import has version 0.10.1")
+ok(manifestSource:find('"kanto_ascended"', 1, true) ~= nil,
+  "manifest rejects Kanto Ascended because both mods own Generation II registries")
 ok(mainSource:find("cacheFilesPresent", 1, true) ~= nil
    and mainSource:find("content.importFiles", 1, true) ~= nil,
   "loader rejects a cache whose generated Crystal files are missing")

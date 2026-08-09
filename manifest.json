@@ -20,7 +20,9 @@
     "quality_of_life",
     "roaming_events"
   ],
-  "conflicts": [],
+  "conflicts": [
+    "kanto_ascended"
+  ],
   "affects_link": true,
   "description": "Imports Pokemon Crystal data from the user's ROM and adds complete Generation II battles, the split-attendant Crystal Day Care, animated boarders, and breeding, ROM-derived species presentation, 251 Pokemon, expanded ecology, and legendary sanctuaries.",
   "github": "Deftones565/gen1recomp-mod-crystal-251"
