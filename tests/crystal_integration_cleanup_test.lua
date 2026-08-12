@@ -29,7 +29,6 @@ local manifestSource = read(root .. "manifest.json")
 local importSource = read(root .. "import_screen.lua")
 local crySource = read(root .. "lib/crystal_cry.lua")
 local summarySource = read(root .. "battle/crystal_summary.lua")
-local stadium2Source = read(root .. "lib/stadium2_bridge.lua")
 
 ok(not effectsSource:find("implemented=false", 1, true),
   "final effects registry has no unimplemented placeholders")
@@ -44,9 +43,9 @@ ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.10.1"', 1, true) ~= nil,
-  "boot-safe automatic Crystal import has version 0.10.1")
-ok(manifestSource:find('"kanto_ascended"', 1, true) ~= nil,
+ok(manifestSource:find('"version": "0.10.5"', 1, true) ~= nil,
+  "importer-owned battle cleanup has version 0.10.5")
+ok(manifestSource:find('"trainer_rematch"', 1, true) ~= nil,
   "manifest rejects Kanto Ascended because both mods own Generation II registries")
 ok(mainSource:find("cacheFilesPresent", 1, true) ~= nil
    and mainSource:find("content.importFiles", 1, true) ~= nil,
@@ -73,31 +72,18 @@ ok(importSource:find("traceback(worker, err)", 1, true) ~= nil,
 ok(importSource:find('Screen.PICKED = "picked_rom.gb"', 1, true) ~= nil
    and importSource:find('love.system.pickFile, "rom"', 1, true) ~= nil,
   "Crystal Android import uses Gen1Recomp's native ROM picker handoff")
-ok(stadium2Source:find('Bridge.ANDROID_PICKED = "picked_rom.gb"', 1, true) ~= nil
-   and stadium2Source:find('love.system.pickFile, "rom"', 1, true) ~= nil,
-  "Stadium 2 Android import uses the native ROM picker handoff")
-ok(stadium2Source:find("Bridge.ERROR_LOG", 1, true) ~= nil
-   and stadium2Source:find("writeStadiumFailure", 1, true) ~= nil,
-  "Stadium 2 import writes detailed failure diagnostics")
-ok(stadium2Source:find("pcall(active.step, active)", 1, true) ~= nil,
-  "unexpected Stadium 2 model-step exceptions become visible failures")
+ok(not manifestSource:find('"STADIUM2_IMPORTER"', 1, true),
+  "Crystal no longer depends on a Stadium renderer provider")
+ok(not mainSource:find("stadium2_models", 1, true)
+   and not mainSource:find("STADIUM2_IMPORTER", 1, true)
+   and not mainSource:find("stadium2_bridge", 1, true),
+  "Crystal contains no Stadium battle presentation path; the importer owns it")
 ok(mainSource:find("CrystalSummary.configure(crystalBaseStats)", 1, true) ~= nil,
   "summary receives the imported Crystal base-stat table")
 ok(summarySource:find('{ "S.ATK", stats.specialAttack }', 1, true) ~= nil,
   "summary draws Special Attack separately")
 ok(summarySource:find('{ "S.DEF", stats.specialDefense }', 1, true) ~= nil,
   "summary draws Special Defense separately")
-ok(mainSource:find('require("mods.CRYSTAL_251.lib.stadium2_bridge")', 1, true) ~= nil,
-  "Crystal installs the Stadium 2 bridge from its own mod")
-ok(stadium2Source:find('Bridge.COUNT = 251', 1, true) ~= nil,
-  "Stadium 2 bridge covers all 251 Pokemon")
-ok(stadium2Source:find('species <= 251', 1, true) ~= nil,
-  "the cloned DRAMATIC_SHAPE pack reader accepts the expanded dex")
-ok(stadium2Source:find('Bridge.NORMAL_DIR', 1, true) ~= nil
-   and stadium2Source:find('Bridge.SHINY_DIR', 1, true) ~= nil,
-  "normal and shiny Stadium 2 packs are stored separately")
-ok(not stadium2Source:find('mods/DRAMATIC_SHAPE', 1, true),
-  "compatibility does not patch DRAMATIC_SHAPE files on disk")
 ok(importSource:find("CrystalCry.render(raw, definition)", 1, true) ~= nil,
   "Crystal imports use the mod-local cry renderer")
 ok(not importSource:find("ChipSynth", 1, true),
