@@ -292,41 +292,116 @@ function Screen.romPresent()
   return Screen.findRom() ~= nil
 end
 
-local function androidPickerAvailable()
-  return love and love.system and love.system.getOS
-    and love.system.getOS() == "Android"
-    and type(love.system.pickFile) == "function"
+-- Gen1Recomp exposes native file pickers as an optional love.system bridge.
+-- The bridge has two result contracts in current builds:
+--   * Android / iOS copy the selected ROM into the LÖVE save directory as
+--     picked_rom.gb.
+--   * UWP returns a temporary host path from love.system.getPickedFile().
+-- Detect capabilities rather than OS names so this keeps working if another
+-- platform grows the same bridge later. Desktop builds without the bridge keep
+-- using choosePath() below.
+local function nativePickerAvailable()
+  return love and love.system and type(love.system.pickFile) == "function"
 end
 
-function Screen:beginAndroidPick()
-  if not androidPickerAvailable() then return false end
+local function nativePickerReturnsPath()
+  return nativePickerAvailable()
+    and type(love.system.getPickedFile) == "function"
+end
+
+local function currentOS()
+  local system = love and love.system
+  if not (system and type(system.getOS) == "function") then return nil end
+  local ok, name = pcall(system.getOS)
+  return ok and name or nil
+end
+
+function Screen:beginNativePick()
+  if not nativePickerAvailable() then return false end
+
+  -- Android/iOS deliver the result by overwriting this save-dir file. Remove
+  -- any stale selection first so pollNativePick cannot consume an old ROM the
+  -- instant the new picker opens. Path-returning bridges (UWP) do not use it.
+  local pathResult = nativePickerReturnsPath()
   local fs = love and love.filesystem
-  if fs and fs.remove then pcall(fs.remove, Screen.PICKED) end
+  if not pathResult and fs and fs.remove then pcall(fs.remove, Screen.PICKED) end
+
   local ok, opened = pcall(love.system.pickFile, "rom")
   if not (ok and opened) then return false end
-  self.androidPickPending = true
+  self.nativePickPending = true
+  self.nativePickMode = pathResult and "path" or "drop"
   self.status = "CHOOSE CRYSTAL ROM"
-  self.detail = "SELECT ROM IN ANDROID"
+  self.detail = "SELECT CRYSTAL ROM"
   return true
 end
 
-function Screen:pollAndroidPick()
-  if not self.androidPickPending then return false end
+function Screen:pollNativePick()
+  if not self.nativePickPending then return false end
+
+  -- UWP-style bridge: the picker gives Lua a temporary native path. This is
+  -- the same contract Gen1Recomp's own RomImporter uses. Read it with io.*
+  -- while the bridge's temporary copy is alive, then discard only UWP's copy.
+  if self.nativePickMode == "path" then
+    local okPath, path = pcall(love.system.getPickedFile)
+    if okPath and type(path) == "string" and path ~= "" then
+      self.nativePickPending = false
+      self.nativePickMode = nil
+      local raw, err = readExternal(path)
+      if currentOS() == "UWP" and os and type(os.remove) == "function" then
+        pcall(os.remove, path)
+      end
+      if not raw then
+        self:fail("reading selected Crystal ROM", err,
+          "ROM: " .. tostring(path) .. "\n" .. tostring(err or "unknown error"))
+        return true
+      end
+      local found = identify(raw)
+      if not found then
+        self:fail("validating selected Crystal ROM",
+          "selected file is not a supported Pokemon Crystal ROM",
+          "ROM: " .. tostring(path))
+        return true
+      end
+      self:start(raw, path:match("[^/\\]+$") or path, found)
+      return true
+    end
+
+    -- UWP can report a picker/read failure separately. A cancellation has no
+    -- error and simply leaves this pending until the player presses Select
+    -- again, at which point beginNativePick opens a fresh picker.
+    if type(love.system.getPickError) == "function" then
+      local okErr, pickerErr = pcall(love.system.getPickError)
+      if okErr and pickerErr ~= nil and tostring(pickerErr) ~= "" then
+        self.nativePickPending = false
+        self.nativePickMode = nil
+        self:fail("selecting Crystal ROM", tostring(pickerErr), tostring(pickerErr))
+        return true
+      end
+    end
+    return false
+  end
+
+  -- Android/iOS-style bridge: native code copies the selected document into
+  -- the save directory under the shared picked_rom.gb hand-off name. This
+  -- avoids trying to io.open content:// URLs on Android or security-scoped
+  -- document URLs on iOS.
   local fs = love and love.filesystem
   if not (fs and fs.getInfo and fs.read) then return false end
   local okInfo, info = pcall(fs.getInfo, Screen.PICKED, "file")
   if not (okInfo and info) then return false end
   local okRead, raw = pcall(fs.read, Screen.PICKED)
   if fs.remove then pcall(fs.remove, Screen.PICKED) end
-  self.androidPickPending = false
+  self.nativePickPending = false
+  self.nativePickMode = nil
   if not okRead or type(raw) ~= "string" then
-    self:fail("reading Android Crystal ROM", raw or "could not read selected ROM",
+    self:fail("reading selected Crystal ROM", raw or "could not read selected ROM",
       "File: " .. Screen.PICKED)
     return true
   end
   local found = identify(raw)
   if not found then
-    self:fail("validating Android Crystal ROM", "selected file is not a supported Pokemon Crystal ROM",
+    self:fail("validating selected Crystal ROM",
+      "selected file is not a supported Pokemon Crystal ROM",
       "File: " .. Screen.PICKED)
     return true
   end
@@ -565,7 +640,10 @@ function Screen:choose()
     self:start(found.raw, found.name, found)
     return
   end
-  if self:beginAndroidPick() then return end
+  -- Prefer Gen1Recomp's native bridge whenever the build provides one. This
+  -- covers Android, iOS and UWP/packaged Windows. Ordinary desktop Windows,
+  -- macOS and Linux fall through to their host picker commands below.
+  if self:beginNativePick() then return end
   local path = choosePath()
   if path then
     local raw, err = readExternal(path)
@@ -582,7 +660,7 @@ function Screen:choose()
 end
 
 function Screen:update(dt)
-  if self:pollAndroidPick() then return end
+  if self:pollNativePick() then return end
   if self.worker and coroutine.status(self.worker) ~= "dead" then
     local ok, err = coroutine.resume(self.worker)
     if not ok then
