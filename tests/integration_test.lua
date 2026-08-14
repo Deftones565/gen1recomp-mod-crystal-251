@@ -249,6 +249,18 @@ T.check(lugia and lugia.sprite=="CRYSTAL_251_SPRITE_LUGIA" and lugia.level==60,
 T.check(hoOh and hoOh.sprite=="CRYSTAL_251_SPRITE_HO_OH"
     and hoOh.level==60 and hoOh.hidden,
   "Ho-Oh uses its gated dedicated Crystal level-60 overworld sprite")
+local tower=run.data.maps.POKEMON_TOWER_7F
+local towerCells={}
+for _,object in ipairs(tower.objects or {}) do
+  local cell=object.x..","..object.y
+  T.check(not towerCells[cell], (object.name or "tower object")
+    .. " does not overlap " .. tostring(towerCells[cell]))
+  towerCells[cell]=object.name
+end
+T.eq(hoOh and hoOh.x,11,"Ho-Oh uses the unoccupied summit column")
+T.eq(hoOh and hoOh.y,3,"Ho-Oh remains at the Tower summit")
+T.check(WorldMap.defIsWalkableCell(tower,run.data.tilesets[tower.tileset],11,4),
+  "the player can stand below Ho-Oh and target it directly")
 T.check(rumor~=nil,"Lavender gains an always-present Ho-Oh rumor NPC")
 
 local tidalTrainers={}

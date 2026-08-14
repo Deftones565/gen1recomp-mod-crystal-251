@@ -87,8 +87,11 @@ title menu if you need to retry after correcting the ROM location.
   and Special Defense. This mirrors the practical Time Capsule constraint while
   preserving each Johto Pokemon's stronger special identity.
 - Adds Steel and Dark and applies the Generation II type chart.
-- Converts happiness evolutions to levels, trade evolutions to evolution items,
-  Espeon/Umbreon to Sun Stone/Moon Stone, and Tyrogue to its three stat checks.
+- Evolves Kadabra and Haunter at level 36, and Machoke and Graveler at level
+  40. Generation II trade evolutions instead work by using the required item
+  directly on the Pokemon: King's Rock, Metal Coat, Dragon Scale, or Up-Grade.
+  Every required item is sold in Kanto. Espeon/Umbreon use Sun Stone/Moon
+  Stone, and Tyrogue retains its three stat checks.
 - Adds HM06 Whirlpool and HM07 Waterfall to the HM rules and to ordinary
   progression. Lance gives HM06 after the Rocket Hideout Giovanni victory,
   while HM07 is an item-ball pickup deep in Seafoam Islands beside Articuno.

@@ -142,4 +142,22 @@ local tyrogue = {}
 for _, evo in ipairs(data.species[236].evolutions) do tyrogue[evo.method] = true end
 T.check(tyrogue.CRYSTAL_STAT_GT and tyrogue.CRYSTAL_STAT_LT and tyrogue.CRYSTAL_STAT_EQ,
   "Tyrogue's three stat branches remain explicit")
+local levelTrades = { [64]=36, [67]=40, [75]=40, [93]=36 }
+for dex, level in pairs(levelTrades) do
+  local evo = data.species[dex].evolutions[1]
+  T.eq(evo.method, "LEVEL", data.species[dex].id .. " evolves by level")
+  T.eq(evo.level, level, data.species[dex].id .. " has its standalone level")
+end
+local itemTrades = {
+  [61]="KINGS_ROCK", [79]="KINGS_ROCK", [95]="METAL_COAT",
+  [123]="METAL_COAT", [117]="DRAGON_SCALE", [137]="UP_GRADE",
+}
+for dex, item in pairs(itemTrades) do
+  local found
+  for _, evo in ipairs(data.species[dex].evolutions) do
+    if evo.item == item then found = evo break end
+  end
+  T.check(found ~= nil, data.species[dex].id .. " uses " .. item .. " directly")
+  T.eq(found and found.method, "ITEM", data.species[dex].id .. " is an item evolution")
+end
 T.finish("crystal 251 extractor")

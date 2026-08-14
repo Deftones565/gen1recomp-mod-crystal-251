@@ -1,6 +1,7 @@
 local LZ = require("mods.CRYSTAL_251.lib.lz")
 local Catalog = require("mods.CRYSTAL_251.catalog")
 local DaycareIcons = require("mods.CRYSTAL_251.daycare_icons")
+local Evolutions = require("mods.CRYSTAL_251.lib.evolutions")
 
 local Extractor = {}
 
@@ -344,12 +345,25 @@ local function parseEvolutionData(reader, pointerTable, speciesIds, moveIds, dex
       evo = { method = "LEVEL", level = level, species = speciesIds[target] }
     elseif method == 2 then
       local item, target = reader:u8(pos), reader:u8(pos + 1); pos = pos + 2
-      evo = { method = "ITEM", item = Catalog.itemByByte[item] or "LINKING_CORD",
+      evo = { method = "ITEM", item = assert(Catalog.itemByByte[item],
+          ("unknown Crystal evolution item 0x%02x"):format(item)),
         species = speciesIds[target] }
     elseif method == 3 then
       local held, target = reader:u8(pos), reader:u8(pos + 1); pos = pos + 2
-      evo = { method = "ITEM", item = held == 0xff and "LINKING_CORD"
-        or Catalog.itemByByte[held] or "LINKING_CORD", species = speciesIds[target] }
+      local levelRule = held == 0xff
+        and Evolutions.levelTrades[speciesIds[dex]] or nil
+      if levelRule then
+        assert(speciesIds[target] == levelRule.species,
+          "Crystal trade evolution target does not match the standalone policy")
+        evo = { method = "LEVEL", level = levelRule.level,
+          species = speciesIds[target] }
+      else
+        assert(held ~= 0xff,
+          "Crystal trade evolution has no standalone evolution policy")
+        evo = { method = "ITEM", item = assert(Catalog.itemByByte[held],
+            ("unknown Crystal held evolution item 0x%02x"):format(held)),
+          species = speciesIds[target] }
+      end
     elseif method == 4 then
       local time, target = reader:u8(pos), reader:u8(pos + 1); pos = pos + 2
       local levels = { [172]=15, [173]=15, [174]=15, [175]=20, [42]=35, [113]=35 }

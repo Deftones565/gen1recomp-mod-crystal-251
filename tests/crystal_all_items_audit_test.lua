@@ -50,7 +50,7 @@ cover("held and Pack berries", {
 })
 cover("encounters", { "CLEANSE_TAG" })
 cover("battle and evolution", { "KINGS_ROCK", "METAL_COAT", "DRAGON_SCALE" })
-cover("evolution", { "SUN_STONE", "UP_GRADE", "LINKING_CORD" })
+cover("evolution", { "SUN_STONE", "UP_GRADE" })
 
 local expected, active = {}, {}
 for _, item in ipairs(Progression.items) do
@@ -62,8 +62,8 @@ for _, item in ipairs(Progression.items) do
   end
 end
 
-assert(#active == 57,
-  ("active Crystal item count changed: got %d, expected 57"):format(#active))
+assert(#active == 56,
+  ("active Crystal item count changed: got %d, expected 56"):format(#active))
 for _, item in ipairs(active) do
   assert(coverage[item], "active Crystal item has no behavior audit: " .. item)
 end
@@ -97,5 +97,5 @@ for _, path in ipairs(suites) do
   assert(succeeded(a, b, c), "Crystal item audit suite failed: " .. path)
 end
 
-print(("\n57/57 active Crystal items covered; %d/%d suites passed")
-  :format(#suites, #suites))
+print(("\n%d/%d active Crystal items covered; %d/%d suites passed")
+  :format(#active, #active, #suites, #suites))

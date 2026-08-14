@@ -171,7 +171,10 @@ function Sanctuaries.install(mod)
       name=HO_OH_OBJECT, pokemon="HO_OH", range="DOWN",
       sprite="CRYSTAL_251_SPRITE_HO_OH",
       text="TEXT_CRYSTAL251_POKEMON_TOWER_HO_OH",
-      x=10, y=3,
+      -- Mr. Fuji's native object occupies (10,3). Keep Ho-Oh on the other
+      -- summit tile so Gen I's first-object interaction order cannot route
+      -- the encounter press into Fuji's dialogue.
+      x=11, y=3,
       habitatNote="ALL 8 BADGES; RESCUE MR. FUJI",
     } } },
   })

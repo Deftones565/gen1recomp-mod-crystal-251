@@ -27,7 +27,9 @@ return function(game)
   assert(U.shot(game,dir.."/tidal_cave_lugia.png"))
 
   game.save.flags.EVENT_RESCUED_MR_FUJI=true
-  U.teleport(game,"POKEMON_TOWER_7F",10,5,"up")
+  -- Stand directly below Ho-Oh's unique cell; this is also the real A-button
+  -- interaction position used by the regression screenshot.
+  U.teleport(game,"POKEMON_TOWER_7F",11,4,"up")
   assert(U.shot(game,dir.."/tower_ho_oh.png"))
   print("[driver] PASS Crystal 251 sanctuary visuals under "..dir)
 end

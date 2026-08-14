@@ -128,7 +128,7 @@ local function installItems(mod)
     BERSERK_GENE={"BERSERK GENE",200}, LIGHT_BALL={"LIGHT BALL",100},
     POLKADOT_BOW={"POLKADOT BOW",100}, BERRY={"BERRY",10},
     GOLD_BERRY={"GOLD BERRY",10}, SUN_STONE={"SUN STONE",2100},
-    UP_GRADE={"UP-GRADE",2100}, LINKING_CORD={"LINKING CORD",15000},
+    UP_GRADE={"UP-GRADE",2100},
     FLOWER_MAIL={"FLOWER MAIL",50,true}, SURF_MAIL={"SURF MAIL",50,true},
     LITEBLUEMAIL={"LITEBLUEMAIL",50,true}, PORTRAITMAIL={"PORTRAITMAIL",50,true},
     LOVELY_MAIL={"LOVELY MAIL",50,true}, EON_MAIL={"EON MAIL",50,true},
@@ -137,7 +137,7 @@ local function installItems(mod)
   }
   local evolution = {
     KINGS_ROCK=true, METAL_COAT=true, DRAGON_SCALE=true,
-    SUN_STONE=true, UP_GRADE=true, LINKING_CORD=true,
+    SUN_STONE=true, UP_GRADE=true,
   }
   for id, row in pairs(rows) do
     if not mod.content.items:get(id) then
@@ -176,7 +176,7 @@ local function installItems(mod)
       label="CeladonMart4FClerkText",
       mart={ "POKE_DOLL", "FIRE_STONE", "THUNDER_STONE", "WATER_STONE",
         "LEAF_STONE", "SUN_STONE", "KINGS_ROCK", "METAL_COAT",
-        "DRAGON_SCALE", "UP_GRADE", "LINKING_CORD" },
+        "DRAGON_SCALE", "UP_GRADE" },
     },
   })
 end
@@ -186,7 +186,7 @@ local function installItemBridge()
   if ItemEffects._crystal251BridgeInstalled then return end
   ItemEffects._crystal251BridgeInstalled = true
   local extras = { KINGS_ROCK=true, METAL_COAT=true, DRAGON_SCALE=true,
-    SUN_STONE=true, UP_GRADE=true, LINKING_CORD=true }
+    SUN_STONE=true, UP_GRADE=true }
   local behaviors = require("mods.CRYSTAL_251.item_behaviors")
   local oldStone, oldNeeds, oldHeals, oldUse = ItemEffects.isStone,
     ItemEffects.needsTarget, ItemEffects.healsHP, ItemEffects.use
@@ -302,6 +302,7 @@ local function registerContent(mod, cache)
   local CrystalProgression = require("mods.CRYSTAL_251.battle.crystal_progression")
   local CrystalGender = require("mods.CRYSTAL_251.battle.crystal_gender")
   local CrystalSummary = require("mods.CRYSTAL_251.battle.crystal_summary")
+  local CrystalEvolutions = require("mods.CRYSTAL_251.lib.evolutions")
   local existingSpeciesByDex = {}
   local crystalHeldItems = {}
   local crystalBaseStats = {}
@@ -311,6 +312,7 @@ local function registerContent(mod, cache)
     local id, old = existingSpeciesByDex[row.dex] or row.id, existingSpeciesByDex[row.dex]
       and mod.content.pokemon:get(existingSpeciesByDex[row.dex]) or nil
     row.id = id
+    row.evolutions = CrystalEvolutions.normalize(id, row.evolutions)
     crystalHeldItems[id] = row.crystalHeldItems
     crystalBaseStats[id] = {
       hp = row.baseStats.hp, attack = row.baseStats.attack,

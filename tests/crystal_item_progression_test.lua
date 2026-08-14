@@ -30,6 +30,12 @@ end
 ok(not unique.PARK_BALL, "Park Ball is excluded from the item catalog")
 ok(not source.PARK_BALL, "Park Ball has no Kanto acquisition source")
 
+local evolutionItems = require("mods.CRYSTAL_251.lib.evolutions").requiredItems
+for _, id in ipairs(evolutionItems) do
+  ok(source[id], id .. " required evolution item is obtainable in Kanto")
+end
+ok(not unique.LINKING_CORD, "Linking Cord is unnecessary and not sold")
+
 local expPickup
 for _, pickup in ipairs(Progression.pickups) do
   if pickup.item == "EXP_SHARE" then expPickup = pickup break end

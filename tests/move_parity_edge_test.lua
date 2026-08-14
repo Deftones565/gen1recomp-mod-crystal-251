@@ -1115,36 +1115,48 @@ case("Crystal Pack berries and Cleanse Tag use live mod bridges", function()
   T.eq(ItemEffects.isBall("PARK_BALL"), false, "Park Ball is not usable")
 end)
 
-case("all Crystal evolution items use the live item bridge", function()
+case("Crystal trade-item evolutions use their item directly", function()
   local ItemEffects = require("src.inventory.ItemEffects")
-  local evolutionItems = {
-    "KINGS_ROCK", "METAL_COAT", "DRAGON_SCALE",
-    "SUN_STONE", "UP_GRADE", "LINKING_CORD",
+  local expected = {
+    POLIWHIRL={item="KINGS_ROCK",species="POLITOED"},
+    SLOWPOKE={item="KINGS_ROCK",species="SLOWKING"},
+    ONIX={item="METAL_COAT",species="STEELIX"},
+    SCYTHER={item="METAL_COAT",species="SCIZOR"},
+    SEADRA={item="DRAGON_SCALE",species="KINGDRA"},
+    PORYGON={item="UP_GRADE",species="PORYGON2"},
   }
-  for _, item in ipairs(evolutionItems) do
-    local species, destination
-    for id, def in pairs(data.pokemon) do
-      for _, evo in ipairs(def.evolutions or {}) do
-        if evo.method == "ITEM" and evo.item == item then
-          species, destination = id, evo.species
-          break
-        end
-      end
-      if species then break end
-    end
-    T.check(species ~= nil, item .. " has a compatible evolution")
-    if species then
-      local target = {species=species,isEgg=false}
-      local result, _, extra = ItemEffects.use(data, {player={name="RED"}},
-        item, target)
-      T.eq(result, "consumed", item .. " accepts its compatible Pokemon")
-      T.eq(extra and extra.evolveTo, destination,
-        item .. " selects the intended evolution")
-    end
+  for species, rule in pairs(expected) do
+    local target = {species=species,isEgg=false}
+    local result, _, extra = ItemEffects.use(data, {player={name="RED"}},
+      rule.item, target)
+    T.eq(result, "consumed", rule.item .. " works directly on " .. species)
+    T.eq(extra and extra.evolveTo, rule.species,
+      species .. " evolves into " .. rule.species)
     local rejected = ItemEffects.use(data, {player={name="RED"}},
-      item, {species="MEW",isEgg=false})
-    T.eq(rejected, "failed", item .. " rejects an incompatible Pokemon")
+      rule.item, {species="MEW",isEgg=false})
+    T.eq(rejected, "failed", rule.item .. " rejects an incompatible Pokemon")
   end
+end)
+
+case("the original four trade evolutions use levels", function()
+  local expected = {
+    KADABRA={species="ALAKAZAM",level=36},
+    MACHOKE={species="MACHAMP",level=40},
+    GRAVELER={species="GOLEM",level=40},
+    HAUNTER={species="GENGAR",level=36},
+  }
+  for species, rule in pairs(expected) do
+    local found
+    for _, evo in ipairs(data.pokemon[species].evolutions or {}) do
+      if evo.species == rule.species then found = evo break end
+    end
+    T.check(found ~= nil, species .. " retains its final evolution")
+    T.eq(found and found.method, "LEVEL", species .. " evolves by level")
+    T.eq(found and found.level, rule.level,
+      species .. " evolves at level " .. rule.level)
+  end
+  T.eq(data.items.LINKING_CORD, nil,
+    "Linking Cord is not exposed after trade evolutions become level based")
 end)
 
 case("Amulet Coin activates through live battle participation", function()

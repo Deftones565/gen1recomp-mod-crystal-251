@@ -43,8 +43,8 @@ ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.11.1"', 1, true) ~= nil,
-  "compatibility release has version 0.11.1")
+ok(manifestSource:find('"version": "0.11.2"', 1, true) ~= nil,
+  "evolution compatibility release has version 0.11.2")
 ok(manifestSource:find('"trainer_rematch"', 1, true) ~= nil,
   "manifest rejects Kanto Ascended because both mods own Generation II registries")
 ok(manifestSource:find('"Kanto%-Reforged"') ~= nil,
