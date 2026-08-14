@@ -18,6 +18,15 @@ local maps = {
   SEAFOAM_ISLANDS_B4F={ objects={ {index=1}, {index=2}, {index=3} } },
 }
 local scripts, screens = {}, {}
+local previousNewCalls = 0
+screens.MoveLearnMenu = {
+  new=function(...)
+    previousNewCalls = previousNewCalls + 1
+    local menu = require("src.ui.MoveLearnMenu").new(...)
+    menu.compatMarker = "preserved"
+    return menu
+  end,
+}
 local mapRegistry = {}
 function mapRegistry:get(id) return maps[id] end
 function mapRegistry:patch(id, partial)
@@ -28,7 +37,12 @@ end
 local scriptRegistry = {}
 function scriptRegistry:register(id, def) scripts[id] = def end
 local screenRegistry = {}
-function screenRegistry:register(id, def) screens[id] = def end
+function screenRegistry:get(id) return screens[id] end
+function screenRegistry:register(id, def)
+  assert(screens[id] == nil, id .. " already registered")
+  screens[id] = def
+end
+function screenRegistry:override(id, def) screens[id] = def end
 
 local result = Progression.install({ content={ maps=mapRegistry,
   map_scripts=scriptRegistry, screens=screenRegistry } })
@@ -81,6 +95,8 @@ local mon={ species="TEST", nickname="TEST", moves={
   {id="TACKLE",pp=35}, {id="TACKLE",pp=35},
 } }
 local menu = screens.MoveLearnMenu.new(game, mon, "HEADBUTT", function() end)
+eq(previousNewCalls, 1, "Crystal composes with an existing move-info screen")
+eq(menu.compatMarker, "preserved", "existing screen behavior survives decoration")
 menu.selecting, menu.index = true, 1
 menu:update(0)
 eq(mon.moves[1].id, "WATERFALL", "Crystal HM07 cannot be forgotten")

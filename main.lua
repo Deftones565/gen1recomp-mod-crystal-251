@@ -217,20 +217,15 @@ end
 
 local function installTypes(mod)
   local chart = require("mods.CRYSTAL_251.type_chart")
-  for id, row in pairs(chart.types) do mod.content.type_chart:register(id, row) end
+  local Registry = require("mods.CRYSTAL_251.lib.registry")
+  for id, row in pairs(chart.types) do
+    Registry.upsert(mod.content.type_chart, id, row)
+  end
   for id, multiplier in pairs(chart.rows) do
-    if mod.content.type_chart:get(id) then
-      mod.content.type_chart:override(id, { multiplier=multiplier })
-    else
-      mod.content.type_chart:register(id, { multiplier=multiplier })
-    end
+    Registry.upsert(mod.content.type_chart, id, { multiplier=multiplier })
   end
   for id, multiplier in pairs(chart.corrections) do
-    if mod.content.type_chart:get(id) then
-      mod.content.type_chart:override(id, { multiplier=multiplier })
-    else
-      mod.content.type_chart:register(id, { multiplier=multiplier })
-    end
+    Registry.upsert(mod.content.type_chart, id, { multiplier=multiplier })
   end
 end
 
@@ -375,9 +370,12 @@ local function registerContent(mod, cache)
     -- Normalize color zero to display white; sprite transparency is unchanged.
     paletteColors[1] = { 255, 255, 255 }
     mod.content.palettes:register("CRYSTAL_251_" .. id, paletteColors)
-    mod.content.icons:register(id, source.icon)
+    require("mods.CRYSTAL_251.lib.registry")
+      .upsert(mod.content.icons, id, source.icon)
   end
   CrystalSummary.configure(crystalBaseStats)
+  CrystalGender.installCompatibility(mod)
+  CrystalSummary.installCompatibility(mod)
   local SpecialDamage = require("mods.CRYSTAL_251.battle.special_damage")
   local MultiTurn = require("mods.CRYSTAL_251.battle.multi_turn")
   local CrystalStatus = require("mods.CRYSTAL_251.battle.crystal_status")

@@ -48,6 +48,8 @@ local function installPokemonBridge()
   local originalNew = Pokemon.new
   Pokemon.new = function(data, species, level, rng, opts)
     local mon = originalNew(data, species, level, rng)
+    require("mods.CRYSTAL_251.battle.crystal_gender").annotate(mon)
+    require("mods.CRYSTAL_251.battle.crystal_summary").enrich(mon)
     if opts and opts.wildHeldItem then
       mon.heldItem = rollWildHeldItem(species, rng)
     end

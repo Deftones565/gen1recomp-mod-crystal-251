@@ -78,10 +78,22 @@ end
 -- constants.hmMoves list, allowing Crystal to protect HM06 and HM07 without
 -- changing the shared engine or affecting games where this mod is disabled.
 local function installForgetProtection(mod)
-  mod.content.screens:register("MoveLearnMenu", {
+  local screens = mod.content.screens
+  local previous = screens:get("MoveLearnMenu")
+  local previousNew
+  if type(previous) == "function" then
+    previousNew = previous
+  elseif type(previous) == "table" then
+    previousNew = previous.new
+  end
+  previousNew = previousNew or require("src.ui.MoveLearnMenu").new
+
+  require("mods.CRYSTAL_251.lib.registry").upsert(screens, "MoveLearnMenu", {
     new=function(game, mon, newMoveId, onDone)
-      local screen = require("src.ui.MoveLearnMenu").new(
-        game, mon, newMoveId, onDone)
+      -- Decorate the effective factory rather than rebuilding the vanilla
+      -- screen. UI mods such as Useful Move Info can therefore keep their
+      -- extra rows and controls while Crystal extends HM protection.
+      local screen = previousNew(game, mon, newMoveId, onDone)
       local builtinUpdate = screen.update
       screen.update = function(self, dt)
         local input = self.game.input
@@ -116,5 +128,6 @@ Progression.HM06_FLAG = HM06_FLAG
 Progression.LANCE_TEXT = LANCE_TEXT
 Progression.LANCE_NAME = LANCE_NAME
 Progression.HM07_NAME = HM07_NAME
+Progression.installForgetProtection = installForgetProtection
 
 return Progression

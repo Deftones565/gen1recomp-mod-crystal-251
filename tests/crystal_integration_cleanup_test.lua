@@ -43,10 +43,29 @@ ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.11.0"', 1, true) ~= nil,
-  "sandbox migration has version 0.11.0")
+ok(manifestSource:find('"version": "0.11.1"', 1, true) ~= nil,
+  "compatibility release has version 0.11.1")
 ok(manifestSource:find('"trainer_rematch"', 1, true) ~= nil,
   "manifest rejects Kanto Ascended because both mods own Generation II registries")
+ok(manifestSource:find('"Kanto%-Reforged"') ~= nil,
+  "manifest rejects Kanto Reforged because both mods own Pokemon and battle data")
+ok(mainSource:find("Registry.upsert(mod.content.type_chart", 1, true) ~= nil,
+  "type installation cannot duplicate another mod's type-chart ids")
+ok(mainSource:find(".upsert(mod.content.icons, id, source.icon)", 1, true) ~= nil,
+  "icon installation cannot duplicate another mod's species icon ids")
+local progressionSource = read(root .. "machine_progression.lua")
+ok(progressionSource:find('upsert(screens, "MoveLearnMenu"', 1, true) ~= nil
+   and progressionSource:find("previousNew(game, mon, newMoveId, onDone)", 1, true) ~= nil,
+  "move-learning compatibility decorates the effective screen factory")
+ok(manifestSource:find('"gen3_battle_ui"', 1, true) ~= nil,
+  "Gen 3 UI loads before Crystal's compatibility adapter")
+local genderSource = read(root .. "battle/crystal_gender.lua")
+ok(genderSource:find('mod.hooks:wrap("gender.roll"', 1, true) ~= nil,
+  "Crystal publishes its ROM-derived gender through the engine hook")
+ok(genderSource:find("gen3BattleUiActive", 1, true) ~= nil,
+  "Crystal yields native battle gender drawing to Gen 3 UI")
+ok(summarySource:find("gen3PokemonUiActive", 1, true) ~= nil,
+  "Crystal yields its native split-stat panel to Gen 3 UI")
 ok(mainSource:find("Cache.readContent() or Cache.importPackaged()", 1, true) ~= nil,
   "loader uses scoped storage or a mod-owned packaged ROM")
 ok(mainSource:find("Crystal251AutoImport", 1, true) ~= nil

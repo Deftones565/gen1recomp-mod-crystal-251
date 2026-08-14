@@ -97,13 +97,15 @@ eq(result, "bag_full", "Take reports full bag")
 eq(mon.heldItem, "LEFTOVERS", "failed Take preserves held item")
 eq(save.inventory.BERRY, 1, "failed Take preserves inventory")
 
-local registered, partyHook
+local registered, partyHook, partyHookPriority
 local mod = {
   content = { screens = { register = function(_, id, def)
     registered = { id = id, def = def }
   end } },
-  hooks = { wrap = function(_, name, fn)
-    if name == "ui.party.submenu" then partyHook = fn end
+  hooks = { wrap = function(_, name, fn, priority)
+    if name == "ui.party.submenu" then
+      partyHook, partyHookPriority = fn, priority
+    end
   end },
   ui = require("src.ui.ModUI"),
 }
@@ -111,11 +113,33 @@ Held.install(mod)
 eq(registered.id, "Crystal251HeldItemPicker", "picker is a mod-owned screen")
 ok(type(registered.def.new) == "function", "picker screen has a factory")
 ok(type(partyHook) == "function", "party submenu hook is installed")
+eq(partyHookPriority, 100,
+  "held-item hook retains mon/ctx outside legacy submenu wrappers")
 
 local base = { { label = "STATS" }, { label = "SWITCH" } }
 local fieldItems = partyHook(function(_, items) return items end, {}, base,
   { species = "PIKACHU" }, { battle = false })
 eq(fieldItems[3].label, "ITEM", "ITEM is available from the field party menu")
+
+-- Reproduce Move Relearn <=1.4.0, whose wrapper calls next(game, items) and
+-- drops mon/ctx. Crystal's higher-priority frame must retain those arguments
+-- and add ITEM after that legacy wrapper returns.
+local Hooks = require("src.mods.Hooks")
+local hooks = Hooks.new()
+hooks:wrap("ui.party.submenu", partyHook, partyHookPriority, "CRYSTAL_251")
+hooks:wrap("ui.party.submenu", function(next, game, items)
+  local out = next(game, items)
+  out[#out + 1] = { label="RELEARN" }
+  return out
+end, nil, "relearn_moves")
+local composed = hooks:call("ui.party.submenu",
+  function(_, items) return items end, {},
+  { {label="STATS"}, {label="SWITCH"} }, {species="PIKACHU"}, {})
+local composedLabels = {}
+for _, row in ipairs(composed) do composedLabels[row.label] = true end
+ok(composedLabels.ITEM and composedLabels.RELEARN,
+  "ITEM and RELEARN survive a wrapper that drops downstream context")
+
 local battleItems = { { label = "SWITCH" }, { label = "STATS" } }
 battleItems = partyHook(function(_, items) return items end, {}, battleItems,
   { species = "PIKACHU" }, { battle = true })

@@ -2,6 +2,8 @@ local Gender = {}
 
 local ratios = {}
 local installed = false
+local compatibilityInstalled = false
+local gen3UiPresent = false
 local unpackValues = table.unpack or unpack
 
 local function nibble(value)
@@ -67,6 +69,125 @@ end
 function Gender.forMon(mon)
   if not mon or mon.isEgg then return nil end
   return Gender.forSpeciesDVs(mon.species, mon.dvs)
+end
+
+-- The engine and presentation mods use lowercase names, while Crystal's
+-- cartridge-facing helpers keep the compact M/F values used by Attract and
+-- breeding.  Publish both forms from one calculation so UI code never has to
+-- reproduce the ROM ratio/DV rule.
+function Gender.presentation(mon)
+  local value = Gender.forMon(mon)
+  if value == "M" then return "male" end
+  if value == "F" then return "female" end
+  return nil
+end
+
+-- Gen 3 UI reads mon.gender in Party, Summary and PC views.  It is derived
+-- state, not a second source of truth: every refresh overwrites it from the
+-- Crystal ratio and DVs, and genderless Crystal species clear a stale value.
+function Gender.annotate(mon)
+  if type(mon) ~= "table" or Gender.ratio(mon.species) == nil then return false end
+  mon.gender = Gender.presentation(mon)
+  return true
+end
+
+function Gender.annotateSave(save)
+  if type(save) ~= "table" then return 0 end
+  local count = 0
+  local function roster(rows)
+    for _, mon in pairs(type(rows) == "table" and rows or {}) do
+      if Gender.annotate(mon) then count = count + 1 end
+    end
+  end
+  roster(save.party)
+  for _, box in pairs(type(save.boxes) == "table" and save.boxes or {}) do
+    roster(box)
+  end
+  return count
+end
+
+-- Battle facades differ between the Gen I host, Gen II host and presentation
+-- mods. Keep the compatibility seam on the live mon records, which all three
+-- shapes expose, instead of wrapping somebody else's renderer.
+function Gender.annotateBattle(battle)
+  if type(battle) ~= "table" then return 0 end
+  local count = 0
+  local function battler(value)
+    if type(value) ~= "table" then return end
+    local mon = type(value.mon) == "table" and value.mon or value
+    if Gender.annotate(mon) then count = count + 1 end
+  end
+  battler(battle.player)
+  battler(battle.enemy)
+  local core = battle.battle
+  if type(core) == "table" and core ~= battle then
+    battler(core.player)
+    battler(core.enemy)
+  end
+  return count
+end
+
+local function gen3Option(game, key, default)
+  if not gen3UiPresent then return false end
+  local loader = game and game.mods
+  local options = loader and loader.modOptions
+  local bucket = options and options.gen3_battle_ui
+  local value = bucket and bucket[key]
+  if value == nil then return default end
+  return value
+end
+
+function Gender.gen3BattleUiActive(battle)
+  local game = battle and battle.game
+  return gen3Option(game, "revampedBattleUI", true) ~= false
+    or gen3Option(game, "hideNativeBattleUI", false) == true
+end
+
+function Gender.gen3PokemonUiActive(game)
+  return gen3Option(game, "revampedPokemonMenu", true) ~= false
+end
+
+function Gender.installCompatibility(mod)
+  if compatibilityInstalled then return false end
+  compatibilityInstalled = true
+  gen3UiPresent = mod and mod.find and mod.find("gen3_battle_ui") ~= nil or false
+
+  if mod and mod.hooks and mod.hooks.wrap then
+    mod.hooks:wrap("gender.roll", function(next, ctx)
+      local def = ctx and ctx.def
+      local species = (ctx and ctx.species) or (def and def.id)
+      if not (def and def.crystalGenderRatio ~= nil)
+          and Gender.ratio(species) == nil then
+        return next(ctx)
+      end
+      local value = Gender.forSpeciesDVs(species, ctx and ctx.dvs)
+      if value == "M" then return "male" end
+      if value == "F" then return "female" end
+      return "unknown"
+    end, 100)
+  end
+
+  local function refresh(payload)
+    local game = payload and payload.game or (mod and mod.game)
+    -- save.loaded intentionally carries {save=...}, not {game=...}. Reading
+    -- that payload directly is what updates an existing party/PC after
+    -- CONTINUE rather than only Pokémon created during the current process.
+    Gender.annotateSave((payload and payload.save) or (game and game.save))
+    local mon = payload and (payload.mon or payload.pokemon)
+    if mon then Gender.annotate(mon) end
+    local battler = payload and payload.battler
+    if battler then Gender.annotate(battler.mon or battler) end
+    Gender.annotateBattle(payload and payload.battle)
+  end
+  if mod and mod.events and mod.events.on then
+    mod.events:on("game.ready", refresh, 100)
+    mod.events:on("save.loaded", refresh, 100)
+    mod.events:on("pokemon.received", refresh, 100)
+    mod.events:on("pokemon.evolved", refresh, 100)
+    mod.events:on("battle.started", refresh, 100)
+    mod.events:on("battle.battler_switched", refresh, 100)
+  end
+  return true
 end
 
 function Gender.symbol(mon)
@@ -138,6 +259,12 @@ function Gender.installRuntime()
   local BattleState = require("src.battle.BattleState")
   local originalDrawHUDs = BattleState.drawHUDs
   BattleState.drawHUDs = function(self, slide)
+    -- Gen 3 UI loaded before Crystal and suppresses the native HUD inside its
+    -- wrapper. Drawing our glyph after that call would escape its invisible
+    -- scissor and leave a duplicate 160x144 symbol under the modern plate.
+    if Gender.gen3BattleUiActive(self) then
+      return originalDrawHUDs(self, slide)
+    end
     local result = withHudLayout(self, originalDrawHUDs, self, slide)
     local snapped = self._crystal251GenderHudSnappedFrame ~= nil
       and self._crystal251GenderHudSnappedFrame == self.frame
@@ -154,7 +281,8 @@ function Gender.installRuntime()
   local originalSummaryDraw = SummaryMenu.draw
   SummaryMenu.draw = function(self)
     local result = originalSummaryDraw(self)
-    if self.mon and Gender.ratio(self.mon.species) ~= nil then
+    if not Gender.gen3PokemonUiActive(self.game)
+        and self.mon and Gender.ratio(self.mon.species) ~= nil then
       love.graphics.setColor(0, 0, 0, 1)
       Gender.drawSummary(self)
       love.graphics.setColor(1, 1, 1, 1)
@@ -199,6 +327,8 @@ end
 function Gender.resetForTests()
   ratios = {}
   installed = false
+  compatibilityInstalled = false
+  gen3UiPresent = false
 end
 
 return Gender

@@ -168,7 +168,10 @@ function HeldItems.install(mod)
       onSelect = function() openItemMenu(game, mon) end,
     })
     return out
-  end)
+  -- Run outside older submenu wrappers that accidentally drop mon/ctx when
+  -- they call next(). We retain the original arguments in this frame, so a
+  -- Move Relearn entry can compose without making ITEM disappear again.
+  end, 100)
 
   HeldItems.screenId = SCREEN_ID
   HeldItems.failureText = failureText

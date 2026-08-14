@@ -1,7 +1,7 @@
 {
   "id": "CRYSTAL_251",
   "name": "Crystal 251",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "api": 2,
   "entry": "main.lua",
   "profile": "overhaul",
@@ -16,10 +16,13 @@
   "optional_dependencies": [
     "shiny_indicators",
     "quality_of_life",
-    "roaming_events"
+    "roaming_events",
+    "useful_move_info",
+    "gen3_battle_ui"
   ],
   "incompatible": [
-    "trainer_rematch"
+    "trainer_rematch",
+    "Kanto-Reforged"
   ],
   "affects_link": true,
   "description": "Imports Pokemon Crystal data and adds complete Generation II battles, 251 Pokemon, breeding, ecology, legendary sanctuaries.",

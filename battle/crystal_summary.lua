@@ -20,6 +20,53 @@ function Summary.statsFor(menu)
   return nil
 end
 
+-- Modern presentation mods read the standard split-stat keys directly from
+-- mon.stats.  Crystal's Gen I host normally has only `special`, so enrich the
+-- existing table without replacing engine-owned HP or the original fields.
+function Summary.enrich(mon)
+  if type(mon) ~= "table" then return false end
+  local stats = Summary.statsFor({ mon=mon })
+  if not stats then return false end
+  mon.stats = mon.stats or {}
+  mon.stats.specialAttack = stats.specialAttack
+  mon.stats.specialDefense = stats.specialDefense
+  return true
+end
+
+function Summary.enrichSave(save)
+  if type(save) ~= "table" then return 0 end
+  local count = 0
+  local function roster(rows)
+    for _, mon in pairs(type(rows) == "table" and rows or {}) do
+      if Summary.enrich(mon) then count = count + 1 end
+    end
+  end
+  roster(save.party)
+  for _, box in pairs(type(save.boxes) == "table" and save.boxes or {}) do
+    roster(box)
+  end
+  return count
+end
+
+function Summary.installCompatibility(mod)
+  if Summary._compatibilityInstalled then return false end
+  Summary._compatibilityInstalled = true
+  local function refresh(payload)
+    local game = payload and payload.game or (mod and mod.game)
+    Summary.enrichSave((payload and payload.save) or (game and game.save))
+    local mon = payload and (payload.mon or payload.pokemon)
+    if mon then Summary.enrich(mon) end
+  end
+  if mod and mod.events and mod.events.on then
+    mod.events:on("game.ready", refresh, 90)
+    mod.events:on("save.loaded", refresh, 90)
+    mod.events:on("pokemon.received", refresh, 90)
+    mod.events:on("pokemon.evolved", refresh, 90)
+    mod.events:on("pokemon.level_up", refresh, 90)
+  end
+  return true
+end
+
 function Summary.drawSplitStats(menu)
   if not (menu and menu.page == 1 and menu.mon and not menu.mon.isEgg) then
     return false
@@ -56,7 +103,8 @@ function Summary.installRuntime()
   local originalDraw = SummaryMenu.draw
   SummaryMenu.draw = function(self)
     local result = originalDraw(self)
-    Summary.drawSplitStats(self)
+    local Gender = require("mods.CRYSTAL_251.battle.crystal_gender")
+    if not Gender.gen3PokemonUiActive(self.game) then Summary.drawSplitStats(self) end
     return result
   end
   return true
