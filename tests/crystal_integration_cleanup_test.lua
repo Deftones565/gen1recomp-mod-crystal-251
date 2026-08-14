@@ -43,13 +43,12 @@ ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.10.5"', 1, true) ~= nil,
-  "importer-owned battle cleanup has version 0.10.5")
+ok(manifestSource:find('"version": "0.11.0"', 1, true) ~= nil,
+  "sandbox migration has version 0.11.0")
 ok(manifestSource:find('"trainer_rematch"', 1, true) ~= nil,
   "manifest rejects Kanto Ascended because both mods own Generation II registries")
-ok(mainSource:find("cacheFilesPresent", 1, true) ~= nil
-   and mainSource:find("content.importFiles", 1, true) ~= nil,
-  "loader rejects a cache whose generated Crystal files are missing")
+ok(mainSource:find("Cache.readContent() or Cache.importPackaged()", 1, true) ~= nil,
+  "loader uses scoped storage or a mod-owned packaged ROM")
 ok(mainSource:find("Crystal251AutoImport", 1, true) ~= nil
    and mainSource:find('mod.events:on("screen.pushed"', 1, true) ~= nil
    and mainSource:find("ev.state.screenId == splash", 1, true) ~= nil
@@ -59,19 +58,19 @@ ok(mainSource:find('label = "CRYSTAL ROM"', 1, true) ~= nil,
   "OPTIONS exposes the manual Crystal ROM importer")
 ok(importSource:find('Screen.ROM_DIR = "baseroms"', 1, true) ~= nil
    and importSource:find("function Screen.findRom()", 1, true) ~= nil
-   and importSource:find("getSourceBaseDirectory", 1, true) ~= nil
-   and importSource:find('addDirectory("", "")', 1, true) ~= nil,
-  "Crystal auto-import scans baseroms and beside the game")
+   and importSource:find("pcall(mod.read, mod, path)", 1, true) ~= nil
+   and not importSource:find("love.filesystem", 1, true),
+  "Crystal auto-import reads only named files inside its own folder")
 ok(importSource:find("content.importFiles = importedFiles", 1, true) ~= nil,
   "Crystal cache records every generated sprite and cry")
-ok(importSource:find('local ERROR_LOG = "crystal_251/import_error.log"', 1, true) ~= nil
+ok(importSource:find('"cache/error", { text=text }', 1, true) ~= nil
    and importSource:find("writeFailureLog", 1, true) ~= nil,
-  "Crystal import writes the exact failure to terminal and a persistent log")
+  "Crystal import writes its exact failure to scoped storage and the mod log")
 ok(importSource:find("traceback(worker, err)", 1, true) ~= nil,
   "Crystal coroutine failures retain a traceback and failing stage")
-ok(importSource:find('Screen.PICKED = "picked_rom.gb"', 1, true) ~= nil
-   and importSource:find('love.system.pickFile, "rom"', 1, true) ~= nil,
-  "Crystal Android import uses Gen1Recomp's native ROM picker handoff")
+ok(not importSource:find("love.system", 1, true)
+   and importSource:find("THIS MOD'S ", 1, true) ~= nil,
+  "Crystal does not use the sandboxed native picker bridge")
 ok(not manifestSource:find('"STADIUM2_IMPORTER"', 1, true),
   "Crystal no longer depends on a Stadium renderer provider")
 ok(not mainSource:find("stadium2_models", 1, true)
@@ -84,8 +83,9 @@ ok(summarySource:find('{ "S.ATK", stats.specialAttack }', 1, true) ~= nil,
   "summary draws Special Attack separately")
 ok(summarySource:find('{ "S.DEF", stats.specialDefense }', 1, true) ~= nil,
   "summary draws Special Defense separately")
-ok(importSource:find("CrystalCry.render(raw, definition)", 1, true) ~= nil,
-  "Crystal imports use the mod-local cry renderer")
+ok(not importSource:find("CrystalCry.render(raw, definition)", 1, true)
+   and read(root .. "battle/crystal_presentation.lua"):find("chip=assert(row.chip)", 1, true),
+  "Crystal cries remain data-only chip definitions")
 ok(not importSource:find("ChipSynth", 1, true),
   "Crystal cry import no longer routes through the Gen I command parser")
 ok(not importSource:find("fallbackCry", 1, true),

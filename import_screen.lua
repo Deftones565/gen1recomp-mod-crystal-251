@@ -1,105 +1,40 @@
 local Screen = {}
 Screen.__index = Screen
 local Picture = require("mods.CRYSTAL_251.lib.picture")
-
-local CACHE = "crystal_251/content.json"
-local GENERATED = "crystal_251/generated"
-local ERROR_LOG = "crystal_251/import_error.log"
+local Cache = require("mods.CRYSTAL_251.lib.cache")
 
 Screen.ROM_DIR = "baseroms"
-Screen.PICKED = "picked_rom.gb"
-
 local PREFERRED_ROMS = {
-  Screen.ROM_DIR .. "/pokemon_crystal.gbc",
-  Screen.ROM_DIR .. "/pokemon_crystal_version.gbc",
-  Screen.ROM_DIR .. "/crystal.gbc",
-  Screen.ROM_DIR .. "/baserom.gbc",
+  "baseroms/pokemon_crystal.gbc",
+  "baseroms/pokemon_crystal_version.gbc",
+  "baseroms/crystal.gbc",
+  "baseroms/baserom.gbc",
+  "pokemon_crystal.gbc",
+  "pokemon_crystal_version.gbc",
+  "crystal.gbc",
+  "baserom.gbc",
 }
 
-local cachedAutoRom = nil
-
--- CacheFs owns portable installs, while love.filesystem owns the ordinary
--- per-user save directory. Clear both possible locations, but only recurse
--- through a tree that PhysFS confirms belongs to the save directory; this
--- must never remove files bundled with the game or checked into a source tree.
-local function removeSaveTree(path)
-  local info = love.filesystem.getInfo(path)
-  if not info then return end
-  if love.filesystem.getRealDirectory
-      and love.filesystem.getRealDirectory(path)
-        ~= love.filesystem.getSaveDirectory() then
-    return
-  end
-  if info.type == "directory" then
-    for _, child in ipairs(love.filesystem.getDirectoryItems(path)) do
-      removeSaveTree(path .. "/" .. child)
-    end
-    -- PhysFS may expose an overlaid/mounted directory that cannot itself be
-    -- removed even after all writable files are gone. Empty shells do not
-    -- retain old import data and are safe to reuse.
-    return
-  end
-  local ok, err = love.filesystem.remove(path)
-  if ok == false then error("could not remove old Crystal import: " .. tostring(err)) end
-end
-
-local function clearOldImport()
-  local CacheFs = require("src.import.CacheFs")
-  CacheFs.removeTree(GENERATED)
-  CacheFs.remove(CACHE)
-  CacheFs.remove(ERROR_LOG)
-  removeSaveTree(GENERATED)
-  removeSaveTree(CACHE)
-  removeSaveTree(ERROR_LOG)
-end
+local cachedAutoRom
 
 local function oneLine(value)
   return tostring(value or "unknown error")
-    :gsub("\r", "")
-    :gsub("\n+", " | ")
-    :gsub("%s+", " ")
-    :gsub("^%s+", "")
-    :gsub("%s+$", "")
+    :gsub("\r", ""):gsub("\n+", " | "):gsub("%s+", " ")
+    :gsub("^%s+", ""):gsub("%s+$", "")
 end
 
-local function traceback(worker, err)
-  local message = tostring(err or "unknown error")
-  if debug and debug.traceback then
-    local ok, value = pcall(debug.traceback, worker, message)
-    if ok and type(value) == "string" then return value end
-  end
-  return message
+local function traceback(_, err)
+  return tostring(err or "unknown error")
 end
 
-local function writeFailureLog(mod, text)
-  text = tostring(text or "unknown error")
+local function writeFailureLog(mod, value)
+  local text = tostring(value or "unknown error")
   if mod and mod.log then
     pcall(function() mod.log:error("Crystal import failed: %s", text) end)
   end
-  pcall(function()
-    if io and io.stderr then
-      io.stderr:write("[CRYSTAL_251] Crystal import failed:\n" .. text .. "\n")
-      if io.stderr.flush then io.stderr:flush() end
-    end
-  end)
-  local okCache, CacheFs = pcall(require, "src.import.CacheFs")
-  if okCache and CacheFs and CacheFs.write then
-    local okWrite, wrote = pcall(CacheFs.write, ERROR_LOG, text .. "\n")
-    if okWrite and wrote then return end
+  if mod and mod.storage and mod.game then
+    pcall(mod.storage.write, mod.storage, mod.game, "cache/error", { text=text })
   end
-  pcall(function()
-    if love and love.filesystem and love.filesystem.write then
-      love.filesystem.write(ERROR_LOG, text .. "\n")
-    end
-  end)
-end
-
-local function readExternal(path)
-  local file, err = io.open(path, "rb")
-  if not file then return nil, err end
-  local raw = file:read("*a")
-  file:close()
-  return raw
 end
 
 local function identify(raw)
@@ -113,174 +48,19 @@ local function identify(raw)
   return { raw=raw, hash=hash, revision=revision }
 end
 
-local function isFile(path)
-  if not (love and love.filesystem and love.filesystem.getInfo) then return false end
-  local ok, info = pcall(love.filesystem.getInfo, path, "file")
-  return ok and info and true or false
-end
-
-local function commandOutput(command)
-  local pipe
-  local okHost, HostShell = pcall(require, "src.core.HostShell")
-  if okHost and HostShell and type(HostShell.popen) == "function" then
-    pipe = HostShell.popen(command, "r")
-  elseif io and io.popen then
-    local ok, opened = pcall(io.popen, command, "r")
-    pipe = ok and opened or nil
-  end
-  if not pipe then return nil end
-  local okRead, value = pcall(pipe.read, pipe, "*a")
-  pcall(pipe.close, pipe)
-  if not okRead then return nil end
-  value = value and value:gsub("^%s+", ""):gsub("%s+$", "")
-  return value ~= "" and value or nil
-end
-
-local function sourceBaseDirectory()
-  local fs = love and love.filesystem
-  if not (fs and fs.getSourceBaseDirectory) then return nil end
-  local ok, base = pcall(fs.getSourceBaseDirectory)
-  return ok and type(base) == "string" and base ~= "" and base or nil
-end
-
-local function cleanDirectory(path)
-  if type(path) ~= "string" then return nil end
-  path = path:gsub("^%s+", ""):gsub("%s+$", ""):gsub("[/\\]+$", "")
-  return path ~= "" and path or nil
-end
-
-local function parentDirectory(path)
-  path = cleanDirectory(path)
-  return path and cleanDirectory(path:match("^(.*)[/\\][^/\\]+$")) or nil
-end
-
-local function macBundleParent(path)
-  path = cleanDirectory(path)
-  if not path then return nil end
-  local normalized = path:gsub("\\", "/")
-  return cleanDirectory(normalized:match("^(.*)/[^/]+%.app/")
-    or normalized:match("^(.*)/[^/]+%.app$"))
-end
-
-local function hostDirectories()
-  local fs = love and love.filesystem
-  local osName = love and love.system and love.system.getOS and love.system.getOS() or nil
-  if osName == "Android" or osName == "iOS" then return {} end
-  local dirs, seen = {}, {}
-  local function add(path)
-    path = cleanDirectory(path)
-    if path and not seen[path] then
-      seen[path] = true
-      dirs[#dirs + 1] = path
-    end
-  end
-  if osName == "Linux" and os and os.getenv then
-    add(parentDirectory(os.getenv("APPIMAGE")))
-  end
-  if osName == "OS X" then
-    add(macBundleParent(sourceBaseDirectory()))
-    if type(arg) == "table" then add(macBundleParent(arg[0])) end
-  end
-  add(sourceBaseDirectory())
-  if type(arg) == "table" then add(parentDirectory(arg[0])) end
-  if fs and fs.getWorkingDirectory then
-    local ok, cwd = pcall(fs.getWorkingDirectory)
-    if ok then add(cwd) end
-  end
-  return dirs
-end
-
-local function externalRomPaths()
-  local osName = love and love.system and love.system.getOS and love.system.getOS() or nil
-  if osName ~= "Windows" and osName ~= "Linux" and osName ~= "OS X" then
-    return {}
-  end
-  if osName == "Windows" and os and os.getenv
-      and os.getenv("APPX_PACKAGE_FAMILY_NAME") then
-    return {}
-  end
-  local paths, seen = {}, {}
-  local function append(path)
-    if path ~= "" and not seen[path] then
-      seen[path] = true
-      paths[#paths + 1] = path
-    end
-  end
-  for _, base in ipairs(hostDirectories()) do
-    local output
-    local found = {}
-    if osName == "Windows" then
-      local quoted = base:gsub("'", "''")
-      output = commandOutput("powershell -NoProfile -Command \"$p='" .. quoted
-        .. "'; Get-ChildItem -LiteralPath $p -File | Where-Object {$_.Extension -ieq '.gbc'} | ForEach-Object {$_.FullName}\"")
-      for path in tostring(output or ""):gmatch("[^\r\n]+") do
-        found[#found + 1] = path
-      end
-    else
-      local quoted = "'" .. base:gsub("'", "'\\''") .. "'"
-      output = commandOutput("find " .. quoted
-        .. " -maxdepth 1 -type f -iname '*.gbc' -print0 2>/dev/null")
-      for path in tostring(output or ""):gmatch("([^%z]+)%z") do
-        found[#found + 1] = path
-      end
-    end
-    table.sort(found)
-    for _, path in ipairs(found) do append(path) end
-  end
-  return paths
-end
-
 function Screen.romHint()
-  local fs = love and love.filesystem
-  local save = fs and fs.getSaveDirectory
-    and select(2, pcall(fs.getSaveDirectory)) or nil
-  local dirs = hostDirectories()
-  local base = dirs[1]
-  local fallback = type(save) == "string" and save .. "/" .. Screen.ROM_DIR
-    or "the game folder/" .. Screen.ROM_DIR
-  return base and base .. " OR " .. fallback or fallback
+  return "THIS MOD'S " .. Screen.ROM_DIR .. " FOLDER"
 end
 
 function Screen.findRom()
   if cachedAutoRom then return cachedAutoRom end
-  local fs = love and love.filesystem
-  if not (fs and fs.read and fs.getDirectoryItems) then return nil end
-  local candidates, seen = {}, {}
-  local function add(path)
-    if not seen[path] and isFile(path) then
-      seen[path] = true
-      candidates[#candidates + 1] = path
-    end
-  end
-  local function addDirectory(path, prefix)
-    local ok, items = pcall(fs.getDirectoryItems, path)
-    if not (ok and items) then return end
-    table.sort(items)
-    for _, name in ipairs(items) do
-      if name:lower():match("%.gbc$") then
-        add(prefix .. name)
-      end
-    end
-  end
-  for _, path in ipairs(PREFERRED_ROMS) do add(path) end
-  addDirectory(Screen.ROM_DIR, Screen.ROM_DIR .. "/")
-  addDirectory("", "")
-  for _, path in ipairs(candidates) do
-    local okRead, raw = pcall(fs.read, path)
-    local found = okRead and identify(raw) or nil
+  local mod = Screen.mod
+  if not (mod and type(mod.read) == "function") then return nil end
+  for _, path in ipairs(PREFERRED_ROMS) do
+    local ok, raw = pcall(mod.read, mod, path)
+    local found = ok and identify(raw) or nil
     if found then
-      found.path = path
-      found.name = path:match("[^/]+$") or path
-      cachedAutoRom = found
-      return found
-    end
-  end
-  for _, path in ipairs(externalRomPaths()) do
-    local raw = readExternal(path)
-    local found = identify(raw)
-    if found then
-      found.path = path
-      found.name = path:match("[^/\\]+$") or path
+      found.path, found.name = path, path:match("[^/]+$") or path
       cachedAutoRom = found
       return found
     end
@@ -292,238 +72,11 @@ function Screen.romPresent()
   return Screen.findRom() ~= nil
 end
 
--- Gen1Recomp exposes native file pickers as an optional love.system bridge.
--- The bridge has two result contracts in current builds:
---   * Android / iOS copy the selected ROM into the LÖVE save directory as
---     picked_rom.gb.
---   * UWP returns a temporary host path from love.system.getPickedFile().
--- Detect capabilities rather than OS names so this keeps working if another
--- platform grows the same bridge later. Desktop builds without the bridge keep
--- using choosePath() below.
-local function nativePickerAvailable()
-  return love and love.system and type(love.system.pickFile) == "function"
-end
-
-local function nativePickerReturnsPath()
-  return nativePickerAvailable()
-    and type(love.system.getPickedFile) == "function"
-end
-
-local function currentOS()
-  local system = love and love.system
-  if not (system and type(system.getOS) == "function") then return nil end
-  local ok, name = pcall(system.getOS)
-  return ok and name or nil
-end
-
-function Screen:beginNativePick()
-  if not nativePickerAvailable() then return false end
-
-  -- Android/iOS deliver the result by overwriting this save-dir file. Remove
-  -- any stale selection first so pollNativePick cannot consume an old ROM the
-  -- instant the new picker opens. Path-returning bridges (UWP) do not use it.
-  local pathResult = nativePickerReturnsPath()
-  local fs = love and love.filesystem
-  if not pathResult and fs and fs.remove then pcall(fs.remove, Screen.PICKED) end
-
-  local ok, opened = pcall(love.system.pickFile, "rom")
-  if not (ok and opened) then return false end
-  self.nativePickPending = true
-  self.nativePickMode = pathResult and "path" or "drop"
-  self.status = "CHOOSE CRYSTAL ROM"
-  self.detail = "SELECT CRYSTAL ROM"
-  return true
-end
-
-function Screen:pollNativePick()
-  if not self.nativePickPending then return false end
-
-  -- UWP-style bridge: the picker gives Lua a temporary native path. This is
-  -- the same contract Gen1Recomp's own RomImporter uses. Read it with io.*
-  -- while the bridge's temporary copy is alive, then discard only UWP's copy.
-  if self.nativePickMode == "path" then
-    local okPath, path = pcall(love.system.getPickedFile)
-    if okPath and type(path) == "string" and path ~= "" then
-      self.nativePickPending = false
-      self.nativePickMode = nil
-      local raw, err = readExternal(path)
-      if currentOS() == "UWP" and os and type(os.remove) == "function" then
-        pcall(os.remove, path)
-      end
-      if not raw then
-        self:fail("reading selected Crystal ROM", err,
-          "ROM: " .. tostring(path) .. "\n" .. tostring(err or "unknown error"))
-        return true
-      end
-      local found = identify(raw)
-      if not found then
-        self:fail("validating selected Crystal ROM",
-          "selected file is not a supported Pokemon Crystal ROM",
-          "ROM: " .. tostring(path))
-        return true
-      end
-      self:start(raw, path:match("[^/\\]+$") or path, found)
-      return true
-    end
-
-    -- UWP can report a picker/read failure separately. A cancellation has no
-    -- error and simply leaves this pending until the player presses Select
-    -- again, at which point beginNativePick opens a fresh picker.
-    if type(love.system.getPickError) == "function" then
-      local okErr, pickerErr = pcall(love.system.getPickError)
-      if okErr and pickerErr ~= nil and tostring(pickerErr) ~= "" then
-        self.nativePickPending = false
-        self.nativePickMode = nil
-        self:fail("selecting Crystal ROM", tostring(pickerErr), tostring(pickerErr))
-        return true
-      end
-    end
-    return false
-  end
-
-  -- Android/iOS-style bridge: native code copies the selected document into
-  -- the save directory under the shared picked_rom.gb hand-off name. This
-  -- avoids trying to io.open content:// URLs on Android or security-scoped
-  -- document URLs on iOS.
-  local fs = love and love.filesystem
-  if not (fs and fs.getInfo and fs.read) then return false end
-  local okInfo, info = pcall(fs.getInfo, Screen.PICKED, "file")
-  if not (okInfo and info) then return false end
-  local okRead, raw = pcall(fs.read, Screen.PICKED)
-  if fs.remove then pcall(fs.remove, Screen.PICKED) end
-  self.nativePickPending = false
-  self.nativePickMode = nil
-  if not okRead or type(raw) ~= "string" then
-    self:fail("reading selected Crystal ROM", raw or "could not read selected ROM",
-      "File: " .. Screen.PICKED)
-    return true
-  end
-  local found = identify(raw)
-  if not found then
-    self:fail("validating selected Crystal ROM",
-      "selected file is not a supported Pokemon Crystal ROM",
-      "File: " .. Screen.PICKED)
-    return true
-  end
-  self:start(raw, Screen.PICKED, found)
-  return true
-end
-
-local function choosePath()
-  local osName = love.system.getOS()
-  if osName == "Linux" then
-    return commandOutput([[zenity --file-selection --title="Choose Pokemon Crystal ROM" --file-filter="Game Boy Color ROM | *.gbc" 2>/dev/null]])
-      or commandOutput([[kdialog --getopenfilename "$HOME" "*.gbc|Game Boy Color ROM" 2>/dev/null]])
-  elseif osName == "OS X" then
-    return commandOutput([[osascript -e 'POSIX path of (choose file with prompt "Choose Pokemon Crystal ROM" of type {"gbc"})' 2>/dev/null]])
-  elseif osName == "Windows" then
-    local script = table.concat({
-      "Add-Type -AssemblyName System.Windows.Forms;",
-      "$d=New-Object System.Windows.Forms.OpenFileDialog;",
-      "$d.Title='Choose Pokemon Crystal ROM';",
-      "$d.Filter='Game Boy Color ROM (*.gbc)|*.gbc|All files (*.*)|*.*';",
-      "if($d.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[Text.Encoding]::UTF8;[Console]::Write($d.FileName)}",
-    })
-    return commandOutput('powershell -NoProfile -STA -Command "' .. script .. '"')
-  end
-end
-
-local function pictureImage(raw, tilesWide, tilesHigh, palette, layout)
-  local width, height = tilesWide * 8, tilesHigh * 8
-  local image = love.image.newImageData(width, height)
-  local fallback = { {1,1,1,1}, {2/3,2/3,2/3,1}, {1/3,1/3,1/3,1}, {0,0,0,1} }
-  local raster = Picture.shadeRaster(raw, tilesWide, tilesHigh, layout)
-  local transparent = Picture.boundaryTransparency(raster, width, height)
-  for y = 0, height - 1 do
-    for x = 0, width - 1 do
-      local index = y * width + x + 1
-      local shade = raster:byte(index)
-      local color = palette and palette[shade + 1] or fallback[shade + 1]
-      local alpha = transparent[index] and 0 or 1
-      -- Do not retain Crystal's paper colour underneath a transparent pixel.
-      -- It is invisible with a nearest, unprocessed draw, but presentation
-      -- filters sample RGB before alpha and expose it as a faint rectangular
-      -- gray fringe in the flat 2D battle view.
-      if alpha == 0 then
-        image:setPixel(x, y, 0, 0, 0, 0)
-      elseif palette then
-        image:setPixel(x, y, color[1]/255, color[2]/255, color[3]/255, alpha)
-      else
-        image:setPixel(x, y, color[1], color[2], color[3], alpha)
-      end
-    end
-  end
-
-  -- Alpha-safe edge bleed. Presentation filters interpolate RGB separately
-  -- from alpha; transparent black therefore darkens the first visible sample
-  -- into a gray halo. Propagate the nearest opaque sprite colour underneath
-  -- every transparent texel while leaving its alpha at zero. Nearest-neighbour
-  -- rendering is unchanged, while linear scaling and post-processing now fade
-  -- the sprite edge into itself instead of black or Crystal's paper colour.
-  local seen, queue, head = {}, {}, 1
-  for y = 0, height - 1 do
-    for x = 0, width - 1 do
-      local index = y * width + x + 1
-      local _, _, _, a = image:getPixel(x, y)
-      if a > 0 then
-        seen[index] = true
-        queue[#queue + 1] = { x, y }
-      end
-    end
-  end
-  while head <= #queue do
-    local point = queue[head]
-    head = head + 1
-    local x, y = point[1], point[2]
-    local r, g, b = image:getPixel(x, y)
-    for _, step in ipairs({ {-1,0}, {1,0}, {0,-1}, {0,1} }) do
-      local nx, ny = x + step[1], y + step[2]
-      if nx >= 0 and ny >= 0 and nx < width and ny < height then
-        local index = ny * width + nx + 1
-        if not seen[index] then
-          seen[index] = true
-          image:setPixel(nx, ny, r, g, b, 0)
-          queue[#queue + 1] = { nx, ny }
-        end
-      end
-    end
-  end
-  return image
-end
-
-local function u16(value)
-  value = value % 0x10000
-  return string.char(value % 0x100, math.floor(value / 0x100))
-end
-
-local function u32(value)
-  return string.char(value % 0x100, math.floor(value / 0x100) % 0x100,
-    math.floor(value / 0x10000) % 0x100,
-    math.floor(value / 0x1000000) % 0x100)
-end
-
-local function soundDataWav(soundData)
-  local samples = soundData:getSampleCount()
-  local channels = soundData:getChannelCount()
-  local rate = soundData:getSampleRate()
-  local pcm = {}
-  for sample = 0, samples - 1 do
-    for channel = 1, channels do
-      local value = math.max(-1, math.min(1, soundData:getSample(sample, channel)))
-      local integer = math.floor(value * 32767 + (value >= 0 and 0.5 or -0.5))
-      pcm[#pcm + 1] = u16(integer)
-    end
-  end
-  pcm = table.concat(pcm)
-  local block = channels * 2
-  return "RIFF" .. u32(36 + #pcm) .. "WAVEfmt " .. u32(16)
-    .. u16(1) .. u16(channels) .. u32(rate) .. u32(rate * block)
-    .. u16(block) .. u16(16) .. "data" .. u32(#pcm) .. pcm
-end
-
 function Screen.new(game, mod)
+  Screen.mod = mod
+  Cache.bind(mod)
   local self = setmetatable({ game=game, mod=mod, status="CHOOSE CRYSTAL ROM",
-    detail="PRESS A TO SELECT", progress=0 }, Screen)
+    detail="PRESS A TO CHECK", progress=0 }, Screen)
   return self
 end
 
@@ -552,7 +105,7 @@ function Screen:fail(stage, err, fullTrace)
   self.status = "CRYSTAL IMPORT FAILED"
   self.detail = where .. ": " .. reason
   self.errorFull = full
-  self.errorLog = ERROR_LOG
+  self.errorLog = "mod.storage:cache/error"
   writeFailureLog(self.mod, full)
 end
 
@@ -580,10 +133,9 @@ function Screen:start(raw, displayName, identified)
   self.worker = coroutine.create(function()
     self.stage = "loading Crystal extractor"
     local Extractor = require("mods.CRYSTAL_251.lib.extractor")
-    local ImageWriter = require("src.import.ImageWriter")
-    local CacheFs = require("src.import.CacheFs")
     self.stage = "clearing old Crystal cache"
-    clearOldImport()
+    local cleared, clearErr = Cache.clear()
+    assert(cleared, clearErr)
     local importedFiles, importedSet = {}, {}
     local function recordFile(path)
       if type(path) == "string" and not importedSet[path] then
@@ -591,26 +143,15 @@ function Screen:start(raw, displayName, identified)
         importedFiles[#importedFiles + 1] = path
       end
     end
-    local CrystalCry = require("mods.CRYSTAL_251.lib.crystal_cry")
     local content = Extractor.extract(raw, revision, {
       writePicture = function(path, bytes, w, h, palette, layout, presentation)
         self.stage = "writing image " .. tostring(path)
-        local image = pictureImage(bytes, w, h, palette, layout)
-        if presentation == "dex" then
-          local canvas = ImageWriter.blank(56, 56, 0, 0, 0, 0)
-          local x = math.floor((56 - image:getWidth()) / 2)
-          local y = 56 - image:getHeight()
-          ImageWriter.blit(canvas, image, x, y)
-          image = canvas
-        end
-        ImageWriter.save(image, path)
-        recordFile(path)
-      end,
-      writeCry = function(path, definition)
-        self.stage = "rendering cry " .. tostring(path)
-        local sound = CrystalCry.render(raw, definition)
-        local saved, err = CacheFs.write(path, soundDataWav(sound))
-        assert(saved, err)
+        local saved, saveErr = Cache.writeAsset(path, {
+          raster=Picture.shadeRaster(bytes, w, h, layout),
+          width=w * 8, height=h * 8, palette=palette,
+          presentation=presentation,
+        })
+        assert(saved, saveErr)
         recordFile(path)
       end,
       progress = function(done, total)
@@ -623,14 +164,12 @@ function Screen:start(raw, displayName, identified)
     content.sourceSha1 = hash
     content.importFiles = importedFiles
     self.stage = "writing Crystal content cache"
-    local Json = require("mods.CRYSTAL_251.lib.json")
-    local ok, err = CacheFs.write(CACHE, Json.encode(content))
+    local ok, err = Cache.writeContent(content)
     assert(ok, err)
     self.stage = "complete"
     self.progress, self.complete = 1, true
-    self.restartDelay = self.autoRestart and 0.5 or nil
     self.status = "CRYSTAL IMPORT COMPLETE"
-    self.detail = self.autoRestart and "RESTARTING" or "PRESS A TO RESTART"
+    self.detail = "CLOSE AND REOPEN GAME"
   end)
 end
 
@@ -640,27 +179,11 @@ function Screen:choose()
     self:start(found.raw, found.name, found)
     return
   end
-  -- Prefer Gen1Recomp's native bridge whenever the build provides one. This
-  -- covers Android, iOS and UWP/packaged Windows. Ordinary desktop Windows,
-  -- macOS and Linux fall through to their host picker commands below.
-  if self:beginNativePick() then return end
-  local path = choosePath()
-  if path then
-    local raw, err = readExternal(path)
-    if not raw then
-      self:fail("reading selected Crystal ROM", err,
-        "ROM: " .. tostring(path) .. "\n" .. tostring(err or "unknown error"))
-      return
-    end
-    self:start(raw, path:match("[^/\\]+$") or path)
-    return
-  end
   self.status = "CRYSTAL ROM NOT FOUND"
   self.detail = "PUT CRYSTAL ROM IN " .. Screen.romHint()
 end
 
 function Screen:update(dt)
-  if self:pollNativePick() then return end
   if self.worker and coroutine.status(self.worker) ~= "dead" then
     local ok, err = coroutine.resume(self.worker)
     if not ok then
@@ -669,18 +192,14 @@ function Screen:update(dt)
     end
     return
   end
-  if self.complete and self.autoRestart then
-    self.restartDelay = (self.restartDelay or 0) - (dt or 1 / 60)
-    if self.restartDelay <= 0 and not self.restarting then
-      self.restarting = true
-      require("src.core.HostShell").restart()
-    end
-    return
-  end
   local input = self.game.input
   if input:wasPressed("b") then self.game.stack:pop()
   elseif input:wasPressed("a") then
-    if self.complete then require("src.core.HostShell").restart() else self:choose() end
+    if self.complete then
+      self.status, self.detail = "RESTART REQUIRED", "CLOSE AND REOPEN GAME"
+    else
+      self:choose()
+    end
   end
 end
 
@@ -723,7 +242,7 @@ function Screen:draw()
     drawWrapped(self.detail, 16, 88, 17, 2)
     love.graphics.rectangle("line", 16, 124, 128, 8)
     love.graphics.rectangle("fill", 17, 125, math.floor(126 * self.progress), 6)
-    Font.draw("A: SELECT B: BACK", 16, 136)
+    Font.draw("A: CHECK B: BACK", 16, 136)
   end
   love.graphics.setColor(1, 1, 1, 1)
 end

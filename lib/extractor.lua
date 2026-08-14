@@ -670,6 +670,8 @@ function Extractor.extract(raw, revision, opts)
       header={ bank=reader:u8(pointer), address=reader:u16(pointer + 1), engine=1 },
       pitch=reader:s16(row + 2), length=reader:u16(row + 4), index=cryIndex,
     }
+    definition.chip = require("mods.CRYSTAL_251.lib.crystal_cry")
+      .chip(raw, definition)
     cries[dex] = definition
     if opts.writeCry then opts.writeCry(path, definition) end
   end

@@ -1,4 +1,4 @@
-local CACHE = "crystal_251/content.json"
+local Cache = require("mods.CRYSTAL_251.lib.cache")
 
 -- These Generation II moves share an effect byte with a Generation I move,
 -- but Crystal stores a per-move effect chance.  Old content caches already
@@ -41,34 +41,18 @@ local KANTO_EFFECT_OVERRIDES = {
   DEFENSE_CURL = "CRYSTAL_EFFECT_9C",
 }
 
-local function cacheFilesPresent(content)
-  local files = content and content.importFiles
-  if type(files) ~= "table" or #files == 0 then return false end
-  for _, path in ipairs(files) do
-    if type(path) ~= "string" then return false end
-    local ok, info = pcall(love.filesystem.getInfo, path, "file")
-    if not (ok and info) then return false end
-  end
-  return true
-end
-
-local function loadCache()
-  if not (love and love.filesystem and love.filesystem.getInfo(CACHE, "file")) then
-    return nil, false
-  end
-  local okRead, raw = pcall(love.filesystem.read, CACHE)
-  if not okRead or type(raw) ~= "string" then return nil, true end
-  local Json = require("mods.CRYSTAL_251.lib.json")
-  local okDecode, content = pcall(Json.decode, raw)
-  if not okDecode then return nil, true end
+local function loadCache(mod)
+  Cache.bind(mod)
+  Cache.installAssetBridge()
+  local content = Cache.readContent() or Cache.importPackaged()
+  if content == nil then return nil, false end
   local supported = { [24]=true }
   if type(content) ~= "table" or not supported[content.schema] then
     return nil, true
   end
   local Gender = require("mods.CRYSTAL_251.battle.crystal_gender")
   local Daycare = require("mods.CRYSTAL_251.daycare")
-  if not Gender.cacheHasRatios(content) or not Daycare.cacheHasData(content)
-      or not cacheFilesPresent(content) then
+  if not Gender.cacheHasRatios(content) or not Daycare.cacheHasData(content) then
     return nil, true
   end
   return content, false
@@ -492,7 +476,7 @@ local function registerContent(mod, cache)
 end
 
 return function(mod)
-  local cache, staleCache = loadCache()
+  local cache, staleCache = loadCache(mod)
   local game
   mod.options:define({
     { key="crystal_shinies", label="CRYSTAL SHINIES", type="toggle", default=true },
@@ -502,6 +486,7 @@ return function(mod)
     { key="force_legendary", label="TEST LEGENDARY", type="toggle", default=false },
   })
   local ImportScreen = require("mods.CRYSTAL_251.import_screen")
+  ImportScreen.mod = mod
   mod.content.screens:register("Crystal251Import", {
     new=function(game) return ImportScreen.new(game, mod) end,
   })
@@ -540,17 +525,16 @@ return function(mod)
       local screens = boot and boot.screens
       local splash = (screens and screens.splash) or "IntroMovie"
       local bootScreen = ev.state.screenId == splash
-        or (os.getenv("POKEPORT_AUTOPILOT") and ev.state == readyGame.overworld)
       if not bootScreen or not ImportScreen.romPresent() then return end
       autoStarted = true
       mod.ui.push(readyGame, "Crystal251AutoImport")
     end)
     if staleCache then
-      mod.log:warn("Crystal cache is outdated or incomplete; a ROM beside the game "
-        .. "or in baseroms will be reimported automatically, or use CRYSTAL ROM in OPTIONS")
+      mod.log:warn("Crystal data is outdated; keep a supported ROM in this mod's "
+        .. "baseroms folder and restart, or use CRYSTAL ROM in OPTIONS")
     else
-      mod.log:warn("Crystal data is not imported; a ROM beside the game or in "
-        .. "baseroms will be imported automatically, or use CRYSTAL ROM in OPTIONS")
+      mod.log:warn("Crystal data is unavailable; put a supported ROM in this mod's "
+        .. "baseroms folder and restart, or use CRYSTAL ROM in OPTIONS")
     end
     return
   end

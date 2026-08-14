@@ -6,6 +6,7 @@ Effects.CHANCE_EFFECTS = {}
 -- moves whose Generation I handlers would couple Special Attack and Defense.
 function Effects.install(mod)
   local MoveEffects = require("src.battle.MoveEffects")
+  local EffectRegistry = require("src.battle.EffectRegistry")
   local TypeChart = require("src.battle.TypeChart")
   local CrystalDamage = require("mods.CRYSTAL_251.battle.crystal_damage")
   local CrystalStats = require("mods.CRYSTAL_251.battle.crystal_stats")
@@ -16,6 +17,28 @@ function Effects.install(mod)
   local CrystalItems = require("mods.CRYSTAL_251.battle.crystal_items")
   local CrystalScheduler = require("mods.CRYSTAL_251.battle.crystal_scheduler")
   local CrystalProgression = require("mods.CRYSTAL_251.battle.crystal_progression")
+  if not EffectRegistry._crystal251InvulnerabilityBridge then
+    EffectRegistry._crystal251InvulnerabilityBridge = true
+    local runDamaging = EffectRegistry.runDamaging
+    EffectRegistry.runDamaging = function(battle, ctx, record)
+      local target = ctx and ctx.target
+      local hidden
+      if target and target.invulnerable and record and record.hitInvulnerable
+          and record.hitInvulnerable(ctx) then
+        hidden = target.invulnerable
+        target.invulnerable = nil
+      end
+      local accuracy = battle.accuracyRoll
+      if record and record.accuracy then
+        battle.accuracyRoll = function() return record.accuracy(ctx) end
+      end
+      local ok, result = pcall(runDamaging, battle, ctx, record)
+      battle.accuracyRoll = accuracy
+      if hidden then target.invulnerable = hidden end
+      if not ok then error(result, 0) end
+      return result
+    end
+  end
   local function name(ctx, battler)
     return battler.isPlayer and battler.name or ("Enemy " .. battler.name)
   end

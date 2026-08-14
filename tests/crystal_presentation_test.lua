@@ -107,7 +107,10 @@ eq(aliasCount, 86, "all 86 Generation II moves have presentation aliases")
 local mod = { content={ battle_anims=registry(moveBase), cries=registry({ BULBASAUR={header={}} }) } }
 local cache = {
   species={ { id="BULBASAUR" }, { id="CHIKORITA" } },
-  cries={ { path="cry1.wav" }, { path="cry2.wav" } },
+  cries={
+    { chip={blob="a",channels={}} },
+    { chip={blob="b",channels={}} },
+  },
 }
 Presentation.register(mod, cache)
 for move in pairs(Presentation.moveAliases) do
@@ -116,8 +119,10 @@ end
 for name in pairs(Presentation.specialAliases) do
   ok(mod.content.battle_anims:get(name) ~= nil, name .. " resolves to a presentation animation")
 end
-eq(mod.content.cries:get("BULBASAUR").file, "cry1.wav", "existing cry is overridden")
-eq(mod.content.cries:get("CHIKORITA").file, "cry2.wav", "new cry is registered")
+eq(mod.content.cries:get("BULBASAUR").chip.blob, "a",
+  "existing cry is overridden with a chip definition")
+eq(mod.content.cries:get("CHIKORITA").chip.blob, "b",
+  "new data-only cry is registered")
 
 local BattleState = {
   drawBattlerPic=function(self, battler)

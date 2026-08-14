@@ -1,6 +1,47 @@
 /generated/
 /cache/
-/*.gb
-/*.gbc
-/*.sav
 
+# Local Codex/agent workspace state.
+.agents/
+.codex/
+
+# Keep the release ROM directory, but never commit anything placed inside it.
+/baseroms/*
+!/baseroms/.gitkeep
+
+# Common cartridge and disc image formats, regardless of location or case.
+*.[gG][bB]
+*.[gG][bB][cC]
+*.[gG][bB][aA]
+*.[gG][gG]
+*.[sS][gG]
+*.[nN][dD][sS]
+*.[3][dD][sS]
+*.[cC][iI][aA]
+*.[nN]64
+*.[zZ]64
+*.[vV]64
+*.[nN][eE][sS]
+*.[sS][mM][cC]
+*.[sS][fF][cC]
+*.[fF][dD][sS]
+*.[gG][eE][nN]
+*.[sS][mM][dD]
+*.[sS][mM][sS]
+*.[pP][cC][eE]
+*.[wW][sS]
+*.[wW][sS][cC]
+*.[nN][gG][pP]
+*.[nN][gG][cC]
+*.[bB][iI][nN]
+*.[iI][mM][gG]
+*.[rR][oO][mM]
+*.[iI][sS][oO]
+*.[cC][hH][dD]
+*.[cC][uU][eE]
+*.[gG][cC][zZ]
+*.[rR][vV][zZ]
+*.[wW][bB][fF][sS]
+*.[xX][cC][iI]
+*.[nN][sS][pP]
+*.[sS][aA][vV]

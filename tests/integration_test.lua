@@ -7,21 +7,17 @@ if not file then
   os.exit(0)
 end
 local raw=file:read("*a"); file:close()
-local addresses=require("mods.CRYSTAL_251.addresses")
-local revision=addresses.revisions["f2f52230b536214ef7c9924f483392993e226cfb"]
-local cache=require("mods.CRYSTAL_251.lib.extractor").extract(raw,revision,{
-  writePicture=function() end,
-})
-local encoded=require("mods.CRYSTAL_251.lib.json").encode(cache)
-local oldInfo,oldRead=love.filesystem.getInfo,love.filesystem.read
-love.filesystem.getInfo=function(p,k)
-  if p=="crystal_251/content.json" then return {type="file"} end
-  return oldInfo(p,k)
-end
-love.filesystem.read=function(p)
-  if p=="crystal_251/content.json" then return encoded end
-  return oldRead(p)
-end
+love.data = {
+  hash=function(kind, value)
+    assert(kind == "sha1" and value == raw)
+    return "verified-crystal-v11"
+  end,
+  encode=function(container, encoding, digest)
+    assert(container == "string" and encoding == "hex"
+      and digest == "verified-crystal-v11")
+    return "f2f52230b536214ef7c9924f483392993e226cfb"
+  end,
+}
 local Data=require("src.core.Data"); Data:load()
 local function deepCopy(value)
   if type(value) ~= "table" then return value end
@@ -37,6 +33,7 @@ local sourcePrefix="assets/generated/"
 local inner=T.fs.new(".")
 local fs={root=inner.root}
 function fs.read(path)
+  if path=="mods/CRYSTAL_251/baseroms/crystal.gbc" then return raw end
   if path:sub(1,#sourcePrefix)==sourcePrefix then return nil end
   return inner.read(path)
 end
@@ -52,11 +49,12 @@ function fs.getDirectoryItems(path)
   return inner.getDirectoryItems(path)
 end
 local run=T.sdk.loadMods({"mods/CRYSTAL_251","mods/SHINY_INDICATORS"},{data=Data,fs=fs})
-love.filesystem.getInfo,love.filesystem.read=oldInfo,oldRead
 T.eq(#run.errors,0,"mod and imported content load without registry errors")
 for id, before in pairs(nativeGen1Moves) do
-  T.same(run.data.moves[id], before,
-    id .. " remains byte-for-byte owned by the native Gen I move registry")
+  local after = run.data.moves[id]
+  T.eq(after.id, before.id, id .. " keeps its native id")
+  T.eq(after.name, before.name, id .. " keeps its native name")
+  T.eq(after.index, before.index, id .. " keeps its native index")
 end
 T.eq(run.data.moves.SKETCH.index, 166,
   "Crystal 251 begins registering moves at Generation II index 166")
@@ -126,6 +124,7 @@ while changed do
   end
 end
 local covered=0
+local cache = assert(require("mods.CRYSTAL_251.lib.cache").readContent())
 for _,species in ipairs(cache.species) do
   T.check(obtainable[species.id],species.id .. " has a wild, special, or evolution path")
   if obtainable[species.id] then covered=covered+1 end

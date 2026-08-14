@@ -133,7 +133,9 @@ function Presentation.register(mod, cache)
   end
   for index, row in ipairs(cache.cries or {}) do
     local species = assert(cache.species[index]).id
-    local definition = { file=assert(row.path) }
+    local definition = {
+      chip=assert(row.chip), pitch=0, length=128,
+    }
     if mod.content.cries:get(species) then
       mod.content.cries:override(species, definition)
     else

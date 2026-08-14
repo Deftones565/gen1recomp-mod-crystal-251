@@ -273,6 +273,26 @@ function Switching.installRuntime()
         "%s\ncan't be recalled!", tostring(player.name)))
       return false
     end
+    if self.crystal251Active and player and player.mon and player.mon.hp > 0
+        and type(self.enemyAction) == "function" then
+      local enemyAction = self:enemyAction()
+      if isMove(enemyAction, "PURSUIT") then
+        self.phase = "messages"
+        self.afterQueue = "menu"
+        self.crystalSwitchingTarget = player
+        self:executeAction(self.enemy, player, enemyAction)
+        self.crystalSwitchingTarget = nil
+        if player.mon.hp <= 0 then return false end
+        -- The enemy has already spent this turn intercepting the recall.
+        -- Suppress only originalResolveSwitch's queued free action; restore
+        -- the caller's selector as soon as that one lookup is consumed.
+        local choose = self.enemyAction
+        self.enemyAction = function(battle)
+          battle.enemyAction = choose
+          return nil
+        end
+      end
+    end
     return originalResolveSwitch(self, newMon)
   end
 

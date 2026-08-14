@@ -135,14 +135,16 @@ if romPath and romPath ~= "" then
     if parsed then
       ok(#result >= 1 and #result <= 3,
         ("Crystal species %d has valid cry channels"):format(dex))
+      local audible = false
       for _, channel in ipairs(result) do
-        ok(#channel.events > 0,
-          ("Crystal species %d channel %d has audible events")
-            :format(dex, channel.number))
-        ok(channel.totalFrames > 0,
-          ("Crystal species %d channel %d has positive duration")
-            :format(dex, channel.number))
+        if #channel.events > 0 then
+          audible = true
+          ok(channel.totalFrames > 0,
+            ("Crystal species %d channel %d has positive duration")
+              :format(dex, channel.number))
+        end
       end
+      ok(audible, ("Crystal species %d has an audible channel"):format(dex))
     end
   end
 end

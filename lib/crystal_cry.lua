@@ -383,4 +383,51 @@ function Cry.trace(raw, definition)
   return out
 end
 
+-- Compile the parsed Crystal cry into the engine's self-contained authored
+-- chip format. Crystal stores pitch and duration as 16-bit species values;
+-- baking those values into each note avoids trying to place them in the
+-- byte-sized modifiers used by Generation I cry records.
+function Cry.chip(raw, definition)
+  local channels = {}
+  for _, channel in ipairs(Cry.trace(raw, definition)) do
+    local program = {}
+    for _, event in ipairs(channel.events) do
+      local sweep = event.sweep or { pace=0, subtract=false, shift=0 }
+      program[#program + 1] = { pitchSweep = {
+        pace=sweep.pace, subtract=sweep.subtract, shift=sweep.shift,
+      } }
+      local consumed = 0
+      while consumed < event.frames do
+        local frames = math.min(16, event.frames - consumed)
+        if event.dutyPattern then
+          local pattern, offset = {}, (event.dutyOffset or 0) + consumed
+          for index = 1, 4 do
+            pattern[index] = event.dutyPattern[(offset + index - 1) % 4 + 1]
+          end
+          program[#program + 1] = { dutyPattern=pattern }
+        elseif event.duty ~= nil then
+          program[#program + 1] = { duty=event.duty }
+        end
+        if channel.number == 8 then
+          program[#program + 1] = { noiseNote = {
+            len=frames, volume=event.volume, fade=event.fade,
+            parameter=event.parameter,
+          } }
+        else
+          program[#program + 1] = { squareNote = {
+            len=frames, volume=event.volume, fade=event.fade,
+            frequency=event.register,
+          } }
+        end
+        consumed = consumed + frames
+      end
+    end
+    channels[#channels + 1] = {
+      hw=(channel.number - 1) % 4 + 1,
+      program=program,
+    }
+  end
+  return require("src.audio.ChipAsm").sfx({ channels=channels }).chip
+end
+
 return Cry

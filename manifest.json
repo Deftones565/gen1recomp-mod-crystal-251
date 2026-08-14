@@ -1,17 +1,16 @@
 {
   "id": "CRYSTAL_251",
   "name": "Crystal 251",
-  "version": "0.10.3",
+  "version": "0.11.0",
   "api": 2,
   "entry": "main.lua",
   "profile": "overhaul",
   "category": "GAMEPLAY",
   "permissions": [
-    "filesystem",
     "engine_internals",
     "network"
   ],
-  "game_version": ">=0.0.0-0 <2.0.0",
+  "game_version": ">=0.1.86 <1.0.0",
   "priority": 110,
   "dependencies": [],
   "optional_dependencies": [

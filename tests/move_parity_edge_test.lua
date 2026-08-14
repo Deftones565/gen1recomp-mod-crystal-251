@@ -12,33 +12,7 @@ end
 local raw = file:read("*a")
 file:close()
 
-local addresses = require("mods.CRYSTAL_251.addresses")
-local revision = addresses.revisions["f2f52230b536214ef7c9924f483392993e226cfb"]
-local generatedFiles = {}
-local cache = require("mods.CRYSTAL_251.lib.extractor").extract(raw, revision, {
-  writePicture = function(generatedPath)
-    generatedFiles[#generatedFiles + 1] = generatedPath
-  end,
-})
-cache.importFiles = generatedFiles
-local encoded = require("mods.CRYSTAL_251.lib.json").encode(cache)
-
-local generatedSet = {}
-for _, generatedPath in ipairs(generatedFiles) do generatedSet[generatedPath] = true end
-local oldInfo, oldRead = love.filesystem.getInfo, love.filesystem.read
-love.filesystem.getInfo = function(p, kind)
-  if p == "crystal_251/content.json" or generatedSet[p] then return { type = "file" } end
-  return oldInfo(p, kind)
-end
-love.filesystem.read = function(p)
-  if p == "crystal_251/content.json" then return encoded end
-  return oldRead(p)
-end
-
-local Data = require("src.core.Data")
-Data:load()
-local run = T.sdk.loadMod("mods/CRYSTAL_251", { data = Data })
-love.filesystem.getInfo, love.filesystem.read = oldInfo, oldRead
+local run = require("mods.CRYSTAL_251.tests._real_rom_mod").load(T, raw)
 T.eq(#run.errors, 0, "Crystal 251 loads before edge-parity probes")
 
 local BattleState = require("src.battle.BattleState")
@@ -279,12 +253,12 @@ case("always-hit moves still respect semi-invulnerability", function()
 end)
 
 case("Twister is the new-move exception that can hit Fly", function()
-  local ordinary = newBattle("TWISTER")
+  local ordinary = newBattle("TWISTER", { enemySpecies="MEW" })
   local hp1 = ordinary.enemy.mon.hp
   perform(ordinary, "TWISTER")
   local normalDamage = hp1 - ordinary.enemy.mon.hp
 
-  local flying = newBattle("TWISTER")
+  local flying = newBattle("TWISTER", { enemySpecies="MEW" })
   flying.enemy.invulnerable = true
   flying.enemy.invulnerableMove = "FLY"
   local hp2 = flying.enemy.mon.hp
