@@ -15,7 +15,7 @@ local PREFERRED_ROMS = {
   "baserom.gbc",
 }
 
-local cachedAutoRom
+local cachedRom
 
 local function oneLine(value)
   return tostring(value or "unknown error")
@@ -53,7 +53,7 @@ function Screen.romHint()
 end
 
 function Screen.findRom()
-  if cachedAutoRom then return cachedAutoRom end
+  if cachedRom then return cachedRom end
   local mod = Screen.mod
   if not (mod and type(mod.read) == "function") then return nil end
   for _, path in ipairs(PREFERRED_ROMS) do
@@ -61,7 +61,7 @@ function Screen.findRom()
     local found = ok and identify(raw) or nil
     if found then
       found.path, found.name = path, path:match("[^/]+$") or path
-      cachedAutoRom = found
+      cachedRom = found
       return found
     end
   end
@@ -77,19 +77,6 @@ function Screen.new(game, mod)
   Cache.bind(mod)
   local self = setmetatable({ game=game, mod=mod, status="CHOOSE CRYSTAL ROM",
     detail="PRESS A TO CHECK", progress=0 }, Screen)
-  return self
-end
-
-function Screen.newAuto(game, mod)
-  local self = Screen.new(game, mod)
-  self.autoRestart = true
-  local found = Screen.findRom()
-  if found then
-    self:start(found.raw, found.name, found)
-  else
-    self.status = "CRYSTAL ROM NOT FOUND"
-    self.detail = Screen.romHint()
-  end
   return self
 end
 
@@ -247,8 +234,8 @@ function Screen:draw()
   love.graphics.setColor(1, 1, 1, 1)
 end
 
-function Screen._resetAutoCandidate()
-  cachedAutoRom = nil
+function Screen._resetRomCandidate()
+  cachedRom = nil
 end
 
 return Screen

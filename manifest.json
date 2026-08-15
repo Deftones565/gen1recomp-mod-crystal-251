@@ -26,5 +26,19 @@
   ],
   "affects_link": true,
   "description": "Imports Pokemon Crystal data and adds complete Generation II battles, 251 Pokemon, breeding, ecology, legendary sanctuaries.",
-  "github": "Deftones565/gen1recomp-mod-crystal-251"
+  "github": "Deftones565/gen1recomp-mod-crystal-251",
+  "required_imports": [
+    {
+      "id": "crystal_rom",
+      "name": "Pokemon Crystal (English UE) ROM",
+      "description": "Required source ROM for Crystal 251. English UE v1.0 and v1.1 are supported.",
+      "file": "crystal.gbc",
+      "format": "raw",
+      "size": 2097152,
+      "md5": [
+        "9f2922b235a5eeb78d65594e82ef5dde",
+        "301899b8087289a6436b0a241fbbb474"
+      ]
+    }
+  ]
 }

@@ -41,21 +41,55 @@ local KANTO_EFFECT_OVERRIDES = {
   DEFENSE_CURL = "CRYSTAL_EFFECT_9C",
 }
 
+local function cacheSupported(content)
+  local supported = { [24]=true }
+  if type(content) ~= "table" or not supported[content.schema] then return false end
+  local Gender = require("mods.CRYSTAL_251.battle.crystal_gender")
+  local Daycare = require("mods.CRYSTAL_251.daycare")
+  return Gender.cacheHasRatios(content) and Daycare.cacheHasData(content)
+end
+
 local function loadCache(mod)
   Cache.bind(mod)
   Cache.installAssetBridge()
-  local content = Cache.readContent() or Cache.importPackaged()
-  if content == nil then return nil, false end
-  local supported = { [24]=true }
-  if type(content) ~= "table" or not supported[content.schema] then
-    return nil, true
+
+  -- Prefer the selected playthrough's durable cache. Crucially, distinguish a
+  -- genuinely missing cache from a storage/binding failure: an I/O or identity
+  -- error must never be interpreted as permission to re-extract the ROM.
+  local stored, state, code, message = Cache.readContentStatus()
+  local context = Cache.context and Cache.context() or nil
+  local playthrough = context and context.playthroughId or "none"
+  local version = context and context.gameVersion or "unknown"
+
+  if cacheSupported(stored) then
+    mod.log:info("Crystal cache: state=valid game=%s playthrough=%s",
+      tostring(version), tostring(playthrough))
+    return stored, false
   end
-  local Gender = require("mods.CRYSTAL_251.battle.crystal_gender")
-  local Daycare = require("mods.CRYSTAL_251.daycare")
-  if not Gender.cacheHasRatios(content) or not Daycare.cacheHasData(content) then
-    return nil, true
+
+  local stale = stored ~= nil
+  if stale then
+    mod.log:warn("Crystal cache: state=stale game=%s playthrough=%s; rebuilding from required ROM",
+      tostring(version), tostring(playthrough))
+  elseif state == "error" then
+    mod.log:error("Crystal cache: state=error code=%s game=%s playthrough=%s: %s",
+      tostring(code), tostring(version), tostring(playthrough), tostring(message))
+    return nil, false
+  elseif state == "unbound" then
+    -- No durable playthrough is selected yet (first install / empty slot).
+    -- Early ROM extraction is required so Crystal's registries can still be
+    -- populated before they freeze; it will be persisted once gameplay owns a
+    -- real playthrough.
+    mod.log:info("Crystal cache: state=unbound code=%s; bootstrapping from required ROM",
+      tostring(code))
+  else
+    mod.log:info("Crystal cache: state=missing game=%s playthrough=%s; bootstrapping from required ROM",
+      tostring(version), tostring(playthrough))
   end
-  return content, false
+
+  local imported = Cache.importPackaged()
+  if cacheSupported(imported) then return imported, stale end
+  return nil, stale
 end
 
 local function isShiny(mon)
@@ -490,20 +524,29 @@ return function(mod)
   mod.content.screens:register("Crystal251Import", {
     new=function(game) return ImportScreen.new(game, mod) end,
   })
-  mod.content.screens:register("Crystal251AutoImport", {
-    new=function(game) return ImportScreen.newAuto(game, mod) end,
-  })
-  mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
-    items = next(game, items)
-    mod.ui.insertBefore(items, "EXIT GAME", {
-      label=(cache or staleCache) and "REIMPORT CRYSTAL" or "IMPORT CRYSTAL",
-      onSelect=function() mod.ui.push(game, "Crystal251Import") end,
-    })
-    return items
-  end, 100)
+
+  -- The engine exposes the same OptionsMenu from the title screen and from
+  -- the in-game START menu. Only expose ROM reimport after a real playthrough
+  -- has entered the overworld. At the title screen the stack contains the
+  -- title/options states but not game.overworld; in-game menus leave the
+  -- overworld underneath them on the state stack.
+  local function inLoadedPlaythrough(g)
+    local stack = g and g.stack
+    local states = stack and stack.states
+    local overworld = g and g.overworld
+    if not (overworld and type(states) == "table") then return false end
+    for _, state in ipairs(states) do
+      if state == overworld then return true end
+    end
+    return false
+  end
+
+  -- Deliberately no ui.title_menu.items hook: Crystal ROM management must not
+  -- appear on the game's title/start screen. The launcher owns first import;
+  -- this in-game Options row is only a reimport/update helper.
   mod.hooks:wrap("ui.options.rows", function(next, game, rows)
     local out = next(game, rows)
-    if type(out) ~= "table" then return out end
+    if type(out) ~= "table" or not inLoadedPlaythrough(game) then return out end
     out[#out + 1] = {
       id = "CRYSTAL_251:crystalRom",
       label = "CRYSTAL ROM",
@@ -511,33 +554,50 @@ return function(mod)
         if cache then return "READY" end
         return staleCache and "UPDATE" or "IMPORT"
       end,
-      activate = function(g) mod.ui.push(g, "Crystal251Import") end,
+      activate = function(g)
+        if inLoadedPlaythrough(g) then
+          mod.ui.push(g, "Crystal251Import")
+        end
+      end,
     }
     return out
   end, 100)
   if not cache then
-    local autoStarted = false
-    mod.events:on("screen.pushed", function(ev)
-      if autoStarted or not (ev and ev.state) then return end
-      local readyGame = require("src.core.Game")
-      if not (readyGame and readyGame.stack) then return end
-      local boot = readyGame.data and readyGame.data.field and readyGame.data.field.boot
-      local screens = boot and boot.screens
-      local splash = (screens and screens.splash) or "IntroMovie"
-      local bootScreen = ev.state.screenId == splash
-      if not bootScreen or not ImportScreen.romPresent() then return end
-      autoStarted = true
-      mod.ui.push(readyGame, "Crystal251AutoImport")
-    end)
+    -- required_imports should make the ROM available before this entry chunk
+    -- runs. A late splash-screen extraction cannot repair this boot because the
+    -- content registries are already being finalized, so never start one here.
+    -- The manual CRYSTAL ROM screen remains as a validation/reimport helper and
+    -- asks for a restart; the next boot performs the real early extraction.
     if staleCache then
-      mod.log:warn("Crystal data is outdated; keep a supported ROM in this mod's "
-        .. "baseroms folder and restart, or use CRYSTAL ROM in OPTIONS")
+      mod.log:warn("Crystal cache is outdated and the required Crystal ROM could not "
+        .. "be imported during early mod load; replace/reselect the ROM in Imported Files and restart")
     else
-      mod.log:warn("Crystal data is unavailable; put a supported ROM in this mod's "
-        .. "baseroms folder and restart, or use CRYSTAL ROM in OPTIONS")
+      mod.log:warn("Crystal data is unavailable even though this mod requires a Crystal ROM; "
+        .. "select a supported ROM in Imported Files and restart")
     end
     return
   end
+
+  -- A required Crystal ROM can provide the overhaul immediately on a first
+  -- launch, before any playthrough exists. Once the real overworld is active,
+  -- commit that in-memory extraction to this playthrough's mod.storage in
+  -- small batches. The next cold start can then restore the cache before the
+  -- content registries freeze instead of extracting the ROM again.
+  local persistWarned, persistLogged = false, false
+  mod.hooks:wrap("input.step", function(next, liveGame, dt)
+    local result = next(liveGame, dt)
+    if Cache.hasPendingPersist and Cache.hasPendingPersist() then
+      local done, err = Cache.persistMemoryStep(16)
+      if err and not persistWarned then
+        persistWarned = true
+        mod.log:warn("Crystal cache persistence failed: %s", tostring(err))
+      elseif done and not persistLogged then
+        persistLogged = true
+        mod.log:info("Crystal ROM extraction cached for this playthrough")
+      end
+    end
+    return result
+  end, 5)
 
   registerContent(mod, cache)
   local daycare = require("mods.CRYSTAL_251.daycare").install(
