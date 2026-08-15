@@ -36,14 +36,21 @@ local function read(key)
   return ok and value or nil
 end
 
+-- Outside an identified playthrough --
+-- the title session, where this mod's own REIMPORT CRYSTAL menu item lives --
+-- mod.storage refuses by design (Storage.lua: "not_in_playthrough"). Every
+-- caller of write() has ALREADY updated the in-memory copy, which is the same
+-- state a fresh boot serves the game from, so "could not persist" is
+-- memory-only success, not import failure. Real write failures stay loud.
 local function write(key, value)
   local storage, owner = modRef and modRef.storage, game()
-  if not (storage and owner) then
-    return false, "sandbox storage unavailable before an identified playthrough"
-  end
+  if not (storage and owner) then return true end
   local ok, wrote, code, message = pcall(storage.write, storage, owner, key, value)
   if not ok then return false, tostring(wrote) end
-  if not wrote then return false, tostring(message or code or "storage write failed") end
+  if not wrote then
+    if code == "not_in_playthrough" then return true end
+    return false, tostring(message or code or "storage write failed")
+  end
   return true
 end
 
@@ -79,11 +86,16 @@ function Cache.readAsset(path)
 end
 
 function Cache.clear()
+  -- With no playthrough there is no reachable persisted
+  -- cache, so there is nothing to clear; the memory reset below is the part
+  -- an import actually depends on.
   local storage, owner = modRef and modRef.storage, game()
-  if not (storage and owner) then return false, "sandbox storage unavailable" end
-  local ok, keys = pcall(storage.list, storage, owner, "cache")
-  if not ok or type(keys) ~= "table" then return false, tostring(keys) end
-  for _, key in ipairs(keys) do pcall(storage.delete, storage, owner, key) end
+  if storage and owner then
+    local ok, keys = pcall(storage.list, storage, owner, "cache")
+    if ok and type(keys) == "table" then
+      for _, key in ipairs(keys) do pcall(storage.delete, storage, owner, key) end
+    end
+  end
   imageDataCache = setmetatable({}, { __mode = "v" })
   imageCache = setmetatable({}, { __mode = "v" })
   memoryAssets, memoryContent = {}, nil
