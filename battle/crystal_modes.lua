@@ -42,7 +42,7 @@ local SOMETIMES_FLEE = {
   UMBREON=true, UNOWN=true, SNUBBULL=true, HERACROSS=true,
 }
 local OFTEN_FLEE = {
-  CUBONE=true, ARTICUNO=true, ZAPDOS=true, MOLTRES=true, QUAGSIRE=true,
+  CUBONE=true, ARTICUNO=false, ZAPDOS=false, MOLTRES=false, QUAGSIRE=true,
   DELIBIRD=true, PHANPY=true, TEDDIURSA=true,
 }
 local ALWAYS_FLEE = { RAIKOU=true, ENTEI=true }
