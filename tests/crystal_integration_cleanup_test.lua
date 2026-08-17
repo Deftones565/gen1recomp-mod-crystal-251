@@ -43,8 +43,8 @@ ok(mainSource:find("local supported = { [24]=true }", 1, true) ~= nil,
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.11.2"', 1, true) ~= nil,
-  "evolution compatibility release has version 0.11.2")
+ok(manifestSource:find('"version": "0.11.3"', 1, true) ~= nil,
+  "current compatibility release has version 0.11.3")
 ok(manifestSource:find('"trainer_rematch"', 1, true) ~= nil,
   "manifest rejects Kanto Ascended because both mods own Generation II registries")
 ok(manifestSource:find('"Kanto%-Reforged"') ~= nil,
@@ -66,13 +66,15 @@ ok(genderSource:find("gen3BattleUiActive", 1, true) ~= nil,
   "Crystal yields native battle gender drawing to Gen 3 UI")
 ok(summarySource:find("gen3PokemonUiActive", 1, true) ~= nil,
   "Crystal yields its native split-stat panel to Gen 3 UI")
-ok(mainSource:find("Cache.readContent() or Cache.importPackaged()", 1, true) ~= nil,
-  "loader uses scoped storage or a mod-owned packaged ROM")
-ok(mainSource:find("Crystal251AutoImport", 1, true) ~= nil
-   and mainSource:find('mod.events:on("screen.pushed"', 1, true) ~= nil
-   and mainSource:find("ev.state.screenId == splash", 1, true) ~= nil
-   and mainSource:find("ImportScreen.romPresent()", 1, true) ~= nil,
-  "missing or obsolete Crystal data waits for the boot screen before auto-importing")
+ok(mainSource:find("Cache.readContentStatus()", 1, true) ~= nil
+   and mainSource:find("Cache.importPackaged()", 1, true) ~= nil,
+  "loader uses scoped storage before falling back to the required ROM")
+ok(manifestSource:find('"required_imports"', 1, true) ~= nil
+   and manifestSource:find('"id": "crystal_rom"', 1, true) ~= nil
+   and mainSource:find("Cache.importPackaged()", 1, true) ~= nil
+   and not mainSource:find("Crystal251AutoImport", 1, true)
+   and not mainSource:find('mod.events:on("screen.pushed"', 1, true),
+  "missing or obsolete Crystal data is handled during early required-import load")
 ok(mainSource:find('label = "CRYSTAL ROM"', 1, true) ~= nil,
   "OPTIONS exposes the manual Crystal ROM importer")
 ok(importSource:find('Screen.ROM_DIR = "baseroms"', 1, true) ~= nil

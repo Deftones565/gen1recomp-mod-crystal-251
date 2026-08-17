@@ -9,13 +9,20 @@ end
 local raw=file:read("*a"); file:close()
 love.data = {
   hash=function(kind, value)
-    assert(kind == "sha1" and value == raw)
-    return "verified-crystal-v11"
+    assert(value == raw)
+    if kind == "md5" then return "verified-crystal-md5" end
+    if kind == "sha1" then return "verified-crystal-v11" end
+    error("unexpected hash kind: " .. tostring(kind))
   end,
   encode=function(container, encoding, digest)
-    assert(container == "string" and encoding == "hex"
-      and digest == "verified-crystal-v11")
-    return "f2f52230b536214ef7c9924f483392993e226cfb"
+    assert(container == "string" and encoding == "hex")
+    if digest == "verified-crystal-md5" then
+      return "301899b8087289a6436b0a241fbbb474"
+    end
+    if digest == "verified-crystal-v11" then
+      return "f2f52230b536214ef7c9924f483392993e226cfb"
+    end
+    error("unexpected digest: " .. tostring(digest))
   end,
 }
 local Data=require("src.core.Data"); Data:load()

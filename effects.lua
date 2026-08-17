@@ -29,11 +29,20 @@ function Effects.install(mod)
         target.invulnerable = nil
       end
       local accuracy = battle.accuracyRoll
+      local contextAccuracy = ctx and ctx.accuracyRoll
       if record and record.accuracy then
-        battle.accuracyRoll = function() return record.accuracy(ctx) end
+        ctx.accuracyRoll = function()
+          return accuracy(battle, ctx.move, ctx.user, ctx.target)
+        end
+        battle.accuracyRoll = function()
+          return record.accuracy(ctx)
+        end
       end
+
       local ok, result = pcall(runDamaging, battle, ctx, record)
+
       battle.accuracyRoll = accuracy
+      if ctx then ctx.accuracyRoll = contextAccuracy end
       if hidden then target.invulnerable = hidden end
       if not ok then error(result, 0) end
       return result
