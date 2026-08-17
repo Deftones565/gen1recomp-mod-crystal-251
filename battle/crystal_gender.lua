@@ -165,13 +165,13 @@ function Gender.installCompatibility(mod)
       if value == "F" then return "female" end
       return "unknown"
     end, 100)
+    mod.hooks:wrap("battle.overlay", function(next, battle)
+      return Gender.withBattleHudTracking(battle, next, battle)
+    end, math.huge)
   end
 
   local function refresh(payload)
     local game = payload and payload.game or (mod and mod.game)
-    -- save.loaded intentionally carries {save=...}, not {game=...}. Reading
-    -- that payload directly is what updates an existing party/PC after
-    -- CONTINUE rather than only Pokémon created during the current process.
     Gender.annotateSave((payload and payload.save) or (game and game.save))
     local mon = payload and (payload.mon or payload.pokemon)
     if mon then Gender.annotate(mon) end
@@ -197,52 +197,131 @@ function Gender.symbol(mon)
   return nil
 end
 
-local function enemyHudVisible(battle, slide)
-  local enemy = battle and battle.enemy
-  return enemy and not battle.showEnemyTrainer and not battle.enemySendingOut
-    and not (battle.growInScale and battle:growInScale(enemy))
-    and slide == 0 and not enemy.fainted
+local trackingDepth = 0
+
+local function statusText(battle, battler)
+  if not (battle and battler and battler.shownStatus) then return nil end
+  if type(battle.statusLabel) == "function" then
+    local ok, value = pcall(battle.statusLabel, battle,
+      { status=battler.shownStatus })
+    if ok and value ~= nil then return tostring(value) end
+  end
+  return tostring(battler.shownStatus)
 end
 
-local function playerHudVisible(battle, slide)
-  return battle and battle.player and not (battle.safari or battle.demo)
-    and not battle.showPlayerBack and slide == 0
+local function hudText(battle, side)
+  local battler = battle and battle[side]
+  if not (battler and battler.mon) then return nil end
+  return statusText(battle, battler) or tostring(battler.mon.level or "")
 end
 
-local function withHudLayout(battle, fn, ...)
-  local Font = require("src.render.Font")
-  local originalDraw = Font.draw
-  Font.draw = function(text, x, y, ...)
-    if battle and battle.crystal251Active then
-      if battle.enemy and battle.enemy.shownStatus and x == 40 and y == 8 then
-        x = 48
-      elseif battle.player and battle.player.shownStatus
-          and x == 120 and y == 64 then
-        x = 112
-      elseif battle.player and not battle.player.shownStatus
-          and battle.player.mon and (battle.player.mon.level or 0) >= 100
-          and x == 120 and y == 64 then
-        x = 112
-      end
+local function nameMatches(text, name)
+  text, name = tostring(text or ""), tostring(name or "")
+  if text == name then return true end
+  if text:sub(-1) == "." then
+    local prefix = text:sub(1, -2)
+    return prefix ~= "" and name:sub(1, #prefix) == prefix
+  end
+  return false
+end
+
+local function uiWidth(battle)
+  local fn = battle and battle.uiSize
+  if type(fn) == "function" then
+    local ok, width = pcall(fn, battle)
+    width = ok and tonumber(width) or nil
+    if width and width > 0 then return width end
+  end
+  return tonumber(battle and (battle.w or battle.width)) or 160
+end
+
+local function matchHudSide(battle, tracker, text, x)
+  if tracker.pending then
+    local expected = hudText(battle, tracker.pending)
+    if expected ~= nil and tostring(text) == expected then
+      return tracker.pending
     end
-    return originalDraw(text, x, y, ...)
   end
-  local ok, a, b, c = pcall(fn, ...)
-  Font.draw = originalDraw
-  if not ok then error(a, 0) end
-  return a, b, c
+  local matches = {}
+  for _, side in ipairs({ "enemy", "player" }) do
+    local expected = hudText(battle, side)
+    if expected ~= nil and tostring(text) == expected then
+      matches[#matches + 1] = side
+    end
+  end
+  if #matches == 1 then return matches[1] end
+  if #matches == 2 then
+    return (tonumber(x) or 0) < uiWidth(battle) / 2 and "enemy" or "player"
+  end
+  return nil
 end
 
-function Gender.drawBattleHUD(battle, slide)
+local function markHudName(battle, tracker, text)
+  for _, side in ipairs({ "enemy", "player" }) do
+    local battler = battle and battle[side]
+    if battler and nameMatches(text, battler.name) then
+      tracker.pending = side
+      return
+    end
+  end
+end
+
+local function adjustedX(battle, side, x, y)
+  local battler = battle and battle[side]
+  if side == "enemy" and battler and battler.shownStatus
+      and x == 40 and y == 8 then
+    return 48
+  end
+  if side == "player" and battler and x == 120 and y == 64
+      and (battler.shownStatus
+        or ((battler.mon and battler.mon.level) or 0) >= 100) then
+    return 112
+  end
+  return x
+end
+
+local function symbolX(side, originalX, drawX, y, width)
+  if side == "enemy" and originalX == 40 and y == 8 then return 72 end
+  if side == "player" and originalX == 120 and y == 64 then return 136 end
+  return drawX + width
+end
+
+local function packedCall(fn, ...)
+  local function capture(...) return { n=select("#", ...), ... } end
+  return capture(pcall(fn, ...))
+end
+
+function Gender.withBattleHudTracking(battle, fn, ...)
+  if type(fn) ~= "function" or not (battle and battle.crystal251Active)
+      or Gender.gen3BattleUiActive(battle) or trackingDepth > 0 then
+    return fn(...)
+  end
   local Font = require("src.render.Font")
-  if enemyHudVisible(battle, slide) then
-    local symbol = Gender.symbol(battle.enemy.mon)
-    if symbol then Font.draw(symbol, 72, 8) end
+  if type(Font.draw) ~= "function" then return fn(...) end
+  local originalDraw = Font.draw
+  local tracker = { pending=nil }
+  trackingDepth = trackingDepth + 1
+  Font.draw = function(text, x, y, ...)
+    local side = matchHudSide(battle, tracker, text, x)
+    local drawX = side and adjustedX(battle, side, x, y) or x
+    local width = originalDraw(text, drawX, y, ...)
+    if side then
+      local battler = battle[side]
+      local symbol = battler and Gender.symbol(battler.mon)
+      if symbol then
+        originalDraw(symbol, symbolX(side, x, drawX, y, width or 0), y)
+      end
+      tracker.pending = nil
+    else
+      markHudName(battle, tracker, text)
+    end
+    return width
   end
-  if playerHudVisible(battle, slide) then
-    local symbol = Gender.symbol(battle.player.mon)
-    if symbol then Font.draw(symbol, 136, 64) end
-  end
+  local result = packedCall(fn, ...)
+  Font.draw = originalDraw
+  trackingDepth = trackingDepth - 1
+  if not result[1] then error(result[2], 0) end
+  return unpackValues(result, 2, result.n)
 end
 
 function Gender.drawSummary(menu)
@@ -257,24 +336,17 @@ function Gender.installRuntime()
   installed = true
 
   local BattleState = require("src.battle.BattleState")
+  local originalDraw = BattleState.draw
+  if type(originalDraw) == "function" then
+    BattleState.draw = function(self, ...)
+      return Gender.withBattleHudTracking(self, originalDraw, self, ...)
+    end
+  end
   local originalDrawHUDs = BattleState.drawHUDs
-  BattleState.drawHUDs = function(self, slide)
-    -- Gen 3 UI loaded before Crystal and suppresses the native HUD inside its
-    -- wrapper. Drawing our glyph after that call would escape its invisible
-    -- scissor and leave a duplicate 160x144 symbol under the modern plate.
-    if Gender.gen3BattleUiActive(self) then
-      return originalDrawHUDs(self, slide)
+  if type(originalDrawHUDs) == "function" then
+    BattleState.drawHUDs = function(self, ...)
+      return Gender.withBattleHudTracking(self, originalDrawHUDs, self, ...)
     end
-    local result = withHudLayout(self, originalDrawHUDs, self, slide)
-    local snapped = self._crystal251GenderHudSnappedFrame ~= nil
-      and self._crystal251GenderHudSnappedFrame == self.frame
-    if self.crystal251Active and not snapped then
-      local ink = self.dramaticShapeShot and self.dramaticShapeDark and 1 or 0
-      love.graphics.setColor(ink, ink, ink, 1)
-      Gender.drawBattleHUD(self, slide)
-      love.graphics.setColor(1, 1, 1, 1)
-    end
-    return result
   end
 
   local SummaryMenu = require("src.ui.SummaryMenu")
@@ -293,42 +365,12 @@ function Gender.installRuntime()
   return true
 end
 
-function Gender.installDramatic(exports)
-  local lib = exports and exports.lib
-  if not (lib and lib.require) then return false end
-  local ok, OverworldBattle = pcall(lib.require, "OverworldBattle")
-  if not ok or not OverworldBattle or OverworldBattle._crystal251GenderHook then
-    return false
-  end
-  local originalHudTexture = OverworldBattle.hudTexture
-  if type(originalHudTexture) ~= "function" then return false end
-  OverworldBattle._crystal251GenderHook = true
-  OverworldBattle.hudTexture = function(battle, slide, dark)
-    local layer = withHudLayout(battle, originalHudTexture,
-      battle, slide, dark)
-    if not (layer and battle and battle.crystal251Active) then return layer end
-    local graphics = love.graphics
-    local previous = graphics.getCanvas()
-    local color = graphics.getColor and { graphics.getColor() } or nil
-    graphics.setCanvas(layer)
-    local ink = dark and 1 or 0
-    graphics.setColor(ink, ink, ink, 1)
-    local drawn, err = pcall(Gender.drawBattleHUD, battle, slide)
-    if previous then graphics.setCanvas(previous) else graphics.setCanvas() end
-    if color then graphics.setColor(unpackValues(color))
-    else graphics.setColor(1, 1, 1, 1) end
-    if not drawn then error(err, 0) end
-    battle._crystal251GenderHudSnappedFrame = battle.frame
-    return layer
-  end
-  return true
-end
-
 function Gender.resetForTests()
   ratios = {}
   installed = false
   compatibilityInstalled = false
   gen3UiPresent = false
+  trackingDepth = 0
 end
 
 return Gender

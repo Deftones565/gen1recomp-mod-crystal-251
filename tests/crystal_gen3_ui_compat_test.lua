@@ -17,12 +17,26 @@ _G.love = { graphics={
   rectangle=function() rectangles = rectangles + 1 end,
 } }
 package.loaded["src.render.Font"] = {
-  draw=function(text, x, y) draws[#draws + 1] = { text=text, x=x, y=y } end,
+  draw=function(text, x, y)
+    draws[#draws + 1] = { text=text, x=x, y=y }
+    local n = 0
+    for _ in tostring(text):gmatch("[\0-\127\194-\244][\128-\191]*") do n = n + 1 end
+    return n * 8
+  end,
 }
 
 local BattleState = {
   drawHUDs=function(self)
     self.nativeHudDraws = (self.nativeHudDraws or 0) + 1
+    local Font = require("src.render.Font")
+    if self.enemy then
+      Font.draw(self.enemy.name or "ENEMY", 8, 0)
+      Font.draw(tostring(self.enemy.mon.level), 40, 8)
+    end
+    if self.player then
+      Font.draw(self.player.name or "PLAYER", 80, 56)
+      Font.draw(tostring(self.player.mon.level), 120, 64)
+    end
   end,
 }
 local SummaryMenu = {
@@ -72,6 +86,8 @@ eq(Summary.installCompatibility(mod), true,
   "Gen 3 UI split-stat compatibility installs")
 eq(hooks["gender.roll"].priority, 100,
   "Crystal gender provider has an explicit hook priority")
+eq(hooks["battle.overlay"].priority, math.huge,
+  "Crystal gender tracks hook-rendered battle UIs")
 
 local female = {
   species="FEMALE", level=50,
@@ -146,7 +162,7 @@ eq(Summary.installRuntime(), true, "native split-stat runtime installs")
 
 local battle = {
   game=game, crystal251Active=true, introSlide=0,
-  enemy={ mon=female }, player={ mon=male },
+  enemy={ name="ENEMY", mon=female }, player={ name="PLAYER", mon=male },
 }
 BattleState.drawHUDs(battle, 0)
 eq(battle.nativeHudDraws, 1, "Gen 3 UI path preserves the wrapped native HUD lifecycle")
