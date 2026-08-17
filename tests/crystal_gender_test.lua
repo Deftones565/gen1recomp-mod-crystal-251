@@ -109,8 +109,12 @@ package.loaded["src.core.Data"] = { pokemon={ MERGED_RATIO={ crystalGenderRatio=
 eq(Gender.forMon(mon("MERGED_RATIO", 0, 0)), "M", "merged species data supplies a missing runtime ratio")
 
 local hooks = {}
+local modernLoaded = false
 local compatibilityMod = {
-  find=function() return nil end,
+  find=function(id)
+    if id == "gen1_modern_ui" and modernLoaded then return { id=id } end
+    return nil
+  end,
   hooks={ wrap=function(_, name, callback, priority)
     hooks[name] = { callback=callback, priority=priority }
   end },
@@ -119,6 +123,8 @@ local compatibilityMod = {
 eq(Gender.installCompatibility(compatibilityMod), true, "gender compatibility installs once")
 eq(hooks["gender.roll"].priority, 100, "gender provider keeps explicit priority")
 eq(hooks["battle.overlay"].priority, math.huge, "battle overlay tracker surrounds UI hook rendering")
+eq(hooks["render.zones"].priority, math.huge, "render zones refreshes semantic gender before UI presentation")
+eq(hooks["render.hud"].priority, 101, "modern UI fallback wraps the retired presenter without owning later UI hooks")
 
 eq(Gender.installRuntime(), true, "gender runtime installs once")
 eq(Gender.installRuntime(), false, "gender runtime is idempotent")
@@ -129,6 +135,21 @@ local battle = {
   player={ name="PLAYER", mon=mon("MALE_ONLY",0,0) },
 }
 battle.enemy.mon.level, battle.player.mon.level = 50, 50
+local game = {
+  mods={ modOptions={} },
+  stack={ states={ battle } },
+}
+function game.stack:top() return self.states[#self.states] end
+battle.game = game
+
+battle.enemy.mon.gender, battle.player.mon.gender = nil, nil
+battle.enemy.gender, battle.player.gender = nil, nil
+hooks["render.zones"].callback(function(_, zones) return zones end, game, {})
+eq(battle.enemy.mon.gender, "female", "render refresh publishes enemy mon gender")
+eq(battle.player.mon.gender, "male", "render refresh publishes player mon gender")
+eq(battle.enemy.gender, "female", "render refresh publishes enemy battler facade gender")
+eq(battle.player.gender, "male", "render refresh publishes player battler facade gender")
+
 BattleState.drawHUDs(battle, 0)
 eq(battle.baseHudDraws, 1, "detached native HUD draw remains callable")
 ok(findDraw("♀", 72, 8), "native enemy gender stays inside the HUD source")
@@ -178,6 +199,26 @@ battle.showEnemyTrainer = true
 battle.showPlayerBack = true
 BattleState.drawHUDs(battle, 0)
 eq(#draws, before, "hidden native HUDs emit no gender")
+battle.showEnemyTrainer, battle.showPlayerBack = false, false
+
+modernLoaded = true
+game.mods.modOptions.gen1_modern_ui = { battleUiWip=true }
+local duringEnemy, duringPlayer
+hooks["render.hud"].callback(function()
+  duringEnemy, duringPlayer = battle.enemy.name, battle.player.name
+end, game, {})
+eq(duringEnemy, "ENEMY♀", "Modern UI sees gender attached to the enemy display name")
+eq(duringPlayer, "PLAYER♂", "Modern UI sees gender attached to the player display name")
+eq(battle.enemy.name, "ENEMY", "Modern UI enemy display-name fallback restores battle state")
+eq(battle.player.name, "PLAYER", "Modern UI player display-name fallback restores battle state")
+
+game.mods.modOptions.gen1_modern_ui.battleUiWip = false
+local disabledEnemy, disabledPlayer
+hooks["render.hud"].callback(function()
+  disabledEnemy, disabledPlayer = battle.enemy.name, battle.player.name
+end, game, {})
+eq(disabledEnemy, "ENEMY", "disabled Modern battle UI does not rewrite enemy presentation")
+eq(disabledPlayer, "PLAYER", "disabled Modern battle UI does not rewrite player presentation")
 
 local summary = { mon=mon("FEMALE_ONLY",15,15) }
 SummaryMenu.draw(summary)

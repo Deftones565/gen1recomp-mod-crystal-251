@@ -4,6 +4,8 @@ local ratios = {}
 local installed = false
 local compatibilityInstalled = false
 local gen3UiPresent = false
+local compatibilityMod = nil
+local presentationNameDepth = 0
 local unpackValues = table.unpack or unpack
 
 local function nibble(value)
@@ -112,19 +114,62 @@ end
 function Gender.annotateBattle(battle)
   if type(battle) ~= "table" then return 0 end
   local count = 0
+  local seen = {}
   local function battler(value)
     if type(value) ~= "table" then return end
     local mon = type(value.mon) == "table" and value.mon or value
-    if Gender.annotate(mon) then count = count + 1 end
+    if not seen[mon] then
+      seen[mon] = true
+      if Gender.annotate(mon) then count = count + 1 end
+    end
+    if value ~= mon and Gender.ratio(mon.species) ~= nil then
+      value.gender = mon.gender
+    end
   end
   battler(battle.player)
   battler(battle.enemy)
+  local shown = battle.shownMon
+  if type(shown) == "table" then
+    battler(shown.player)
+    battler(shown.enemy)
+    battler(shown[1])
+    battler(shown[2])
+  end
   local core = battle.battle
   if type(core) == "table" and core ~= battle then
     battler(core.player)
     battler(core.enemy)
   end
   return count
+end
+
+function Gender.activeBattle(game)
+  local stack = game and game.stack
+  local states = stack and stack.states
+  if type(states) == "table" then
+    for index = #states, 1, -1 do
+      local state = states[index]
+      if type(state) == "table" then
+        if state.crystal251Active then return state end
+        local nested = state.battle
+        if type(nested) == "table" and nested.crystal251Active then
+          return nested
+        end
+      end
+    end
+  end
+  local top = stack and stack.top
+  if type(top) == "function" then
+    local ok, state = pcall(top, stack)
+    if ok and type(state) == "table" then
+      if state.crystal251Active then return state end
+      local nested = state.battle
+      if type(nested) == "table" and nested.crystal251Active then
+        return nested
+      end
+    end
+  end
+  return nil
 end
 
 local function gen3Option(game, key, default)
@@ -150,6 +195,7 @@ end
 function Gender.installCompatibility(mod)
   if compatibilityInstalled then return false end
   compatibilityInstalled = true
+  compatibilityMod = mod
   gen3UiPresent = mod and mod.find and mod.find("gen3_battle_ui") ~= nil or false
 
   if mod and mod.hooks and mod.hooks.wrap then
@@ -168,6 +214,18 @@ function Gender.installCompatibility(mod)
     mod.hooks:wrap("battle.overlay", function(next, battle)
       return Gender.withBattleHudTracking(battle, next, battle)
     end, math.huge)
+    mod.hooks:wrap("render.zones", function(next, game, zones)
+      Gender.annotateBattle(Gender.activeBattle(game))
+      return next(game, zones)
+    end, math.huge)
+    mod.hooks:wrap("render.hud", function(next, game, viewport)
+      local battle = Gender.activeBattle(game)
+      if battle then Gender.annotateBattle(battle) end
+      if battle and Gender.modernBattleUiActive(game) then
+        return Gender.withPresentationGenderNames(battle, next, game, viewport)
+      end
+      return next(game, viewport)
+    end, 101)
   end
 
   local function refresh(payload)
@@ -291,6 +349,63 @@ local function packedCall(fn, ...)
   return capture(pcall(fn, ...))
 end
 
+local function modHandle(id)
+  local find = compatibilityMod and compatibilityMod.find
+  if type(find) ~= "function" then return nil end
+  local ok, handle = pcall(find, id)
+  if not ok then
+    ok, handle = pcall(find, compatibilityMod, id)
+  end
+  return ok and handle or nil
+end
+
+function Gender.modernBattleUiActive(game)
+  local handle = modHandle("gen1_modern_ui")
+  if not handle then return false end
+  local mods = game and game.mods
+  local options = mods and mods.modOptions
+  local bucket = options and options.gen1_modern_ui
+  if type(bucket) == "table" then return bucket.battleUiWip == true end
+  local source = handle.options
+  if source and type(source.get) == "function" then
+    local ok, value = pcall(source.get, source, "battleUiWip")
+    if ok then return value == true end
+  end
+  return false
+end
+
+local function hasGenderSuffix(name)
+  name = tostring(name or "")
+  return name:sub(-3) == "♂" or name:sub(-3) == "♀"
+end
+
+function Gender.withPresentationGenderNames(battle, fn, ...)
+  if type(fn) ~= "function" or not (battle and battle.crystal251Active)
+      or presentationNameDepth > 0 then
+    return fn(...)
+  end
+  local changed = {}
+  for _, side in ipairs({ "enemy", "player" }) do
+    local battler = battle[side]
+    local mon = battler and (battler.mon or battler)
+    local symbol = Gender.symbol(mon)
+    if type(battler) == "table" and type(battler.name) == "string"
+        and symbol and not hasGenderSuffix(battler.name) then
+      changed[#changed + 1] = { battler=battler, name=battler.name }
+      battler.name = battler.name .. symbol
+    end
+  end
+  presentationNameDepth = presentationNameDepth + 1
+  local result = packedCall(fn, ...)
+  presentationNameDepth = presentationNameDepth - 1
+  for index = #changed, 1, -1 do
+    local row = changed[index]
+    row.battler.name = row.name
+  end
+  if not result[1] then error(result[2], 0) end
+  return unpackValues(result, 2, result.n)
+end
+
 function Gender.withBattleHudTracking(battle, fn, ...)
   if type(fn) ~= "function" or not (battle and battle.crystal251Active)
       or Gender.gen3BattleUiActive(battle) or trackingDepth > 0 then
@@ -369,8 +484,10 @@ function Gender.resetForTests()
   ratios = {}
   installed = false
   compatibilityInstalled = false
+  compatibilityMod = nil
   gen3UiPresent = false
   trackingDepth = 0
+  presentationNameDepth = 0
 end
 
 return Gender
