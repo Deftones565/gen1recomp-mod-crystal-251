@@ -520,10 +520,18 @@ ok(registeredScripts.ROUTE_5
   "appended outside man receives the Egg-pickup script")
 ok(readyListener,"Day Care registers its game.ready lifecycle hook")
 readyListener()
+local installedStepBridge=package.loaded["src.world.OverworldController"].onStepComplete
+-- Simulate the module-local state reset that accompanies a loader rollback or
+-- hot reload. The shared overworld class survives and must keep exactly one
+-- Crystal bridge instead of accumulating another wrapper frame.
+Daycare.resetForTests()
+readyListener()
+eq(package.loaded["src.world.OverworldController"].onStepComplete,
+  installedStepBridge,"Day Care hot reload reuses its overworld step bridge")
 local beforeRuntime=runtimeBoarder.exp
 package.loaded["src.world.OverworldController"].onStepComplete({})
 eq(runtimeBoarder.exp,beforeRuntime+1,
-  "payload-free game.ready binds the live Game and advances the boarder")
+  "reload-safe step bridge advances the boarder exactly once")
 eq(vanillaSteps,1,"ordinary Day Care steps continue into the vanilla pipeline")
 package.loaded["src.pokemon.Pokemon"].heal(healedEgg)
 eq(healedEgg.hp,0,"Pokemon Center healing leaves an Egg at zero HP")

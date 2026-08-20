@@ -42,7 +42,9 @@ local KANTO_EFFECT_OVERRIDES = {
 }
 
 local function cacheSupported(content)
-  local supported = { [24]=true }
+  -- Schema 24 remains readable through the legacy per-asset cache fallback;
+  -- schema 25 stores the same public content in one compressed asset bundle.
+  local supported = { [24]=true, [25]=true }
   if type(content) ~= "table" or not supported[content.schema] then return false end
   local Gender = require("mods.CRYSTAL_251.battle.crystal_gender")
   local Daycare = require("mods.CRYSTAL_251.daycare")
@@ -520,7 +522,7 @@ return function(mod)
   local ImportScreen = require("mods.CRYSTAL_251.import_screen")
   ImportScreen.mod = mod
   mod.content.screens:register("Crystal251Import", {
-    new=function(game) return ImportScreen.new(game, mod) end,
+    new=function(game, options) return ImportScreen.new(game, mod, options) end,
   })
 
   -- The engine exposes the same OptionsMenu from the title screen and from
@@ -581,18 +583,33 @@ return function(mod)
   -- commit that in-memory extraction to this playthrough's mod.storage in
   -- small batches. The next cold start can then restore the cache before the
   -- content registries freeze instead of extracting the ROM again.
-  local persistWarned, persistLogged = false, false
+  local importScreen, persistLogged = nil, false
+  local function screenIsOnStack(g, screen)
+    local states = g and g.stack and g.stack.states
+    if type(states) ~= "table" or not screen then return false end
+    for _, state in ipairs(states) do
+      if state == screen then return true end
+    end
+    return false
+  end
+
   mod.hooks:wrap("input.step", function(next, liveGame, dt)
     local result = next(liveGame, dt)
     if Cache.hasPendingPersist and Cache.hasPendingPersist() then
-      local done, err = Cache.persistMemoryStep(16)
-      if err and not persistWarned then
-        persistWarned = true
-        mod.log:warn("Crystal cache persistence failed: %s", tostring(err))
-      elseif done and not persistLogged then
-        persistLogged = true
-        mod.log:info("Crystal ROM extraction cached for this playthrough")
+      -- Automatic work is never advanced invisibly.  First put the registered
+      -- opaque importer on the live stack; its update method owns every cache
+      -- write on subsequent frames and displays the corresponding progress.
+      if importScreen and not screenIsOnStack(liveGame, importScreen) then
+        importScreen = nil
       end
+      if not importScreen and inLoadedPlaythrough(liveGame) then
+        importScreen = mod.ui.push(liveGame, "Crystal251Import", {
+          automatic = true,
+        })
+      end
+    elseif importScreen and not persistLogged then
+      persistLogged = true
+      mod.log:info("Crystal ROM extraction cached for this playthrough")
     end
     return result
   end, 5)

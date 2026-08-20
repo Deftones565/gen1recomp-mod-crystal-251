@@ -25,7 +25,7 @@
     "Kanto-Reforged"
   ],
   "affects_link": true,
-  "description": "Imports Pokemon Crystal data and adds complete Generation II battles, 251 Pokemon, breeding, ecology, legendary sanctuaries.",
+  "description": "Requires your own English Pokemon Crystal ROM. Adds Generation II battles, 251 Pokemon, breeding, ecology, and legendary sanctuaries.",
   "github": "Deftones565/gen1recomp-mod-crystal-251",
   "required_imports": [
     {

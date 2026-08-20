@@ -691,11 +691,11 @@ function Extractor.extract(raw, revision, opts)
   end
 
   return {
-    schema = 24, revision = revision.id, species = pokemon, moves = moves,
+    schema = 25, revision = revision.id, species = pokemon, moves = moves,
     cries = cries,
     unownForms = unownForms, overworldSprites = overworldSprites,
     daycareIconAssets = daycareIconAssets, eggAssets = eggAssets,
-    fingerprint = revision.id .. ":251:251:v21",
+    fingerprint = revision.id .. ":251:251:v22",
   }
 end
 

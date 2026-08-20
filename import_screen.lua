@@ -72,13 +72,22 @@ function Screen.romPresent()
   return Screen.findRom() ~= nil
 end
 
-function Screen.new(game, mod)
+function Screen.new(game, mod, options)
   Screen.mod = mod
   Cache.bind(mod)
+  options = options or {}
+  if options.automatic then
+    local done, total = Cache.persistProgress()
+    return setmetatable({ game=game, mod=mod, automatic=true,
+      status="IMPORTING CRYSTAL", detail="PREPARING CRYSTAL 251",
+      progress=total > 0 and done / total or 0, hold=0 }, Screen)
+  end
   local self = setmetatable({ game=game, mod=mod, status="CHOOSE CRYSTAL ROM",
     detail="PRESS A TO CHECK", progress=0 }, Screen)
   return self
 end
+
+Screen.isOpaque = true
 
 function Screen:fail(stage, err, fullTrace)
   local reason = oneLine(err)
@@ -133,7 +142,7 @@ function Screen:start(raw, displayName, identified)
     local content = Extractor.extract(raw, revision, {
       writePicture = function(path, bytes, w, h, palette, layout, presentation)
         self.stage = "writing image " .. tostring(path)
-        local saved, saveErr = Cache.writeAsset(path, {
+        local saved, saveErr = Cache.stageAsset(path, {
           raster=Picture.shadeRaster(bytes, w, h, layout),
           width=w * 8, height=h * 8, palette=palette,
           presentation=presentation,
@@ -145,14 +154,25 @@ function Screen:start(raw, displayName, identified)
         self.stage = ("extracting Pokemon %d of %d"):format(done, total)
         self.progress = done / total
         self.detail = ("POKEMON %d / %d"):format(done, total)
-        coroutine.yield()
+        -- Extraction itself is sub-second; yielding once per Pokemon forced
+        -- an otherwise finished import to occupy at least 251 display frames.
+        -- Sixteen-species batches keep the progress screen responsive while
+        -- removing that artificial four-second floor.
+        if done == total or done % 16 == 0 then coroutine.yield() end
       end,
     })
     content.sourceSha1 = hash
     content.importFiles = importedFiles
-    self.stage = "writing Crystal content cache"
-    local ok, err = Cache.writeContent(content)
-    assert(ok, err)
+    self.stage = "preparing compressed Crystal cache"
+    assert(Cache.stageContent(content))
+    while Cache.hasPendingPersist() do
+      local done, err = Cache.persistMemoryStep(1)
+      assert(not err, err)
+      local complete, total = Cache.persistProgress()
+      self.progress = total > 0 and complete / total or 1
+      self.detail = ("CACHE %d / %d"):format(complete, total)
+      if not done then coroutine.yield() end
+    end
     self.stage = "complete"
     self.progress, self.complete = 1, true
     self.status = "CRYSTAL IMPORT COMPLETE"
@@ -171,6 +191,23 @@ function Screen:choose()
 end
 
 function Screen:update(dt)
+  if self.automatic then
+    local done, err = Cache.persistMemoryStep(16)
+    local complete, total = Cache.persistProgress()
+    self.progress = total > 0 and complete / total or 1
+    self.detail = ("FILES %d / %d"):format(complete, total)
+    if err then
+      self.automatic = false
+      self:fail("saving Crystal cache", err)
+    elseif done then
+      self.status, self.detail, self.progress = "CRYSTAL IMPORT COMPLETE", "READY", 1
+      self.hold = (self.hold or 0) + (tonumber(dt) or 1 / 60)
+      if self.hold >= 0.75 and self.game.stack:top() == self then
+        self.game.stack:pop()
+      end
+    end
+    return
+  end
   if self.worker and coroutine.status(self.worker) ~= "dead" then
     local ok, err = coroutine.resume(self.worker)
     if not ok then
@@ -191,13 +228,15 @@ function Screen:update(dt)
 end
 
 function Screen:draw()
-  local Font = require("src.render.Font")
+  local Font = assert(self.mod and self.mod.ui and self.mod.ui.Font,
+    "Crystal importer needs mod.ui.Font")
   local function wrapped(text, width)
     local lines, line = {}, ""
     local function push(value)
       if value ~= "" then lines[#lines + 1] = value end
     end
-    for word in tostring(text or ""):gmatch("%S+") do
+    for matched in tostring(text or ""):gmatch("%S+") do
+      local word = matched
       while #word > width do
         if line ~= "" then push(line); line = "" end
         push(word:sub(1, width))
@@ -229,7 +268,7 @@ function Screen:draw()
     drawWrapped(self.detail, 16, 88, 17, 2)
     love.graphics.rectangle("line", 16, 124, 128, 8)
     love.graphics.rectangle("fill", 17, 125, math.floor(126 * self.progress), 6)
-    Font.draw("A: CHECK B: BACK", 16, 136)
+    Font.draw(self.automatic and "PLEASE WAIT" or "A: CHECK B: BACK", 16, 136)
   end
   love.graphics.setColor(1, 1, 1, 1)
 end
@@ -237,5 +276,9 @@ end
 function Screen._resetRomCandidate()
   cachedRom = nil
 end
+
+-- Kept for the existing importer contract/tests; both names reset the same
+-- mod-owned required-import candidate.
+Screen._resetAutoCandidate = Screen._resetRomCandidate
 
 return Screen

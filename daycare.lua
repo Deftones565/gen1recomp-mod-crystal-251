@@ -22,7 +22,6 @@ local MON2_NAME = "CRYSTAL251_DAYCARE_MON_2"
 local MON1_TEXT = "TEXT_CRYSTAL251_DAYCARE_MON_1"
 local MON2_TEXT = "TEXT_CRYSTAL251_DAYCARE_MON_2"
 
-local installed = false
 local eggAssets
 local daycareIconAssets
 local gameRef
@@ -1013,17 +1012,30 @@ function Daycare.install(mod, assets, iconAssets)
       Daycare.syncNPCs(gameRef, overworld and overworld.map and overworld or nil)
     end
 
-    if not installed then
-      installed = true
-      local OverworldState = require("src.world.OverworldController")
-      local original = OverworldState.onStepComplete
+    local OverworldState = require("src.world.OverworldController")
+    local bridge = OverworldState._crystal251DaycareStepBridge
+    if not bridge then
+      bridge = { original=OverworldState.onStepComplete }
+      OverworldState._crystal251DaycareStepBridge = bridge
       OverworldState.onStepComplete = function(self, ...)
-        if gameRef and gameRef.save then Daycare.normalize(gameRef.save, gameRef.data) end
-        -- Crystal's CountStep returns a hatch event before poison, encounters,
-        -- and the rest of the completed-step pipeline. Preserve that ordering.
-        if Daycare.step(gameRef, self) then return end
-        return original(self, ...)
+        -- Keep one engine-facing wrapper for the lifetime of the process.
+        -- Loader rollback/hot reload can recreate this module, but it must not
+        -- add another onStepComplete frame: enough stale frames eventually
+        -- stack-overflow on a warp step, most visibly at the Celadon and
+        -- Rocket Hideout elevator entrances.
+        local step = bridge.step
+        if step and step(self) then return end
+        return bridge.original(self, ...)
       end
+    end
+    -- Rebind the one bridge to this module generation. This preserves the
+    -- complete Crystal CountStep ordering without retaining a stale Daycare
+    -- table or nesting another overworld wrapper after a reload.
+    bridge.step = function(overworld)
+      if gameRef and gameRef.save then Daycare.normalize(gameRef.save, gameRef.data) end
+      -- Crystal's CountStep returns a hatch event before poison, encounters,
+      -- and the rest of the completed-step pipeline. Preserve that ordering.
+      return Daycare.step(gameRef, overworld)
     end
   end)
   return Daycare
@@ -1060,7 +1072,7 @@ function Daycare.cacheHasData(cache)
 end
 
 function Daycare.resetForTests()
-  installed, gameRef, eggAssets, daycareIconAssets = false, nil, nil, nil
+  gameRef, eggAssets, daycareIconAssets = nil, nil, nil
 end
 
 return Daycare

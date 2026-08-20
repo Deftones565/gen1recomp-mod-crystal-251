@@ -81,7 +81,7 @@ T.eq(eggPictures, 2, "Egg front and party-icon graphics are decoded from the ROM
 T.eq(frontPictures, 251*4 + 26*4, "every front and Pokédex picture is column-major")
 T.eq(backPictures, 251*2 + 26*2, "every normal and shiny back picture is column-major")
 T.eq(dexPictures, 251*2 + 26*2, "every normal and shiny Pokédex picture requests centering")
-T.eq(data.schema, 24, "auto-import manifests invalidate incomplete pre-compatibility caches")
+T.eq(data.schema, 25, "compressed-bundle imports invalidate incompatible older writers")
 T.eq(#data.species[1].shinyPaletteColors, 4,
   "Stadium 2 import retains Crystal's shiny palette")
 T.eq(data.overworldSprites.lugia,

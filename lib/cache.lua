@@ -4,7 +4,10 @@ local Cache = {}
 
 local CONTENT_KEY = "cache/content"
 local ASSET_PREFIX = "cache/assets/"
+local ASSET_BUNDLE_KEY = "cache/assets_bundle"
 local VIRTUAL_PREFIX = "crystal_251/generated/"
+local BUNDLE_MAGIC = "C2A1"
+local COMPRESSED_MAGIC = "C2Z1"
 
 local modRef
 local imageDataCache = setmetatable({}, { __mode = "v" })
@@ -13,6 +16,7 @@ local memoryAssets = {}
 local memoryContent
 local memoryNeedsPersist = false
 local persistPaths, persistIndex
+local bundleIndex, bundleRaster, bundleLoaded
 local selectedOwner
 local selectedOwnerCode, selectedOwnerMessage
 
@@ -192,6 +196,94 @@ local function write(key, value)
   return true
 end
 
+local function u32le(value)
+  return string.char(value % 256, math.floor(value / 256) % 256,
+    math.floor(value / 65536) % 256, math.floor(value / 16777216) % 256)
+end
+
+local function readU32le(bytes, offset)
+  local a, b, c, d = bytes:byte(offset, offset + 3)
+  if not d then return nil end
+  return a + b * 256 + c * 65536 + d * 16777216
+end
+
+local function encodeBundle(assets)
+  local paths = {}
+  for path in pairs(assets) do paths[#paths + 1] = path end
+  table.sort(paths)
+  local records, rasters = {}, {}
+  for _, path in ipairs(paths) do
+    local spec = assert(assets[path], "missing staged Crystal asset")
+    local raster = assert(spec.raster, "Crystal asset has no raster")
+    records[#records + 1] = {
+      path = path, width = spec.width, height = spec.height,
+      palette = spec.palette, presentation = spec.presentation,
+      length = #raster,
+    }
+    rasters[#rasters + 1] = raster
+  end
+  local index = require("mods.CRYSTAL_251.lib.json").encode(records)
+  local raw = BUNDLE_MAGIC .. u32le(#index) .. index .. table.concat(rasters)
+  local data = love and love.data
+  if data and type(data.compress) == "function" then
+    local ok, packed = pcall(data.compress, "string", "lz4", raw, 0)
+    if ok and type(packed) == "string" and #packed + 8 < #raw then
+      return COMPRESSED_MAGIC .. u32le(#raw) .. packed, #paths
+    end
+  end
+  return raw, #paths
+end
+
+local function decodeBundle(bytes)
+  if type(bytes) ~= "string" then return nil, "Crystal asset bundle is missing" end
+  if bytes:sub(1, 4) == COMPRESSED_MAGIC then
+    local expected = readU32le(bytes, 5)
+    local data = love and love.data
+    if not expected or not (data and type(data.decompress) == "function") then
+      return nil, "Crystal asset bundle decompressor is unavailable"
+    end
+    local ok, raw = pcall(data.decompress, "string", "lz4", bytes:sub(9))
+    if not ok or type(raw) ~= "string" or #raw ~= expected then
+      return nil, "Crystal asset bundle is corrupt"
+    end
+    bytes = raw
+  end
+  if bytes:sub(1, 4) ~= BUNDLE_MAGIC then
+    return nil, "Crystal asset bundle has an unknown format"
+  end
+  local indexLength = readU32le(bytes, 5)
+  if not indexLength or 8 + indexLength > #bytes then
+    return nil, "Crystal asset bundle index is truncated"
+  end
+  local records, jsonErr = require("mods.CRYSTAL_251.lib.json")
+    .decode(bytes:sub(9, 8 + indexLength))
+  if type(records) ~= "table" then return nil, tostring(jsonErr) end
+  local index, cursor = {}, 9 + indexLength
+  for _, record in ipairs(records) do
+    local length = math.floor(tonumber(record.length) or -1)
+    if type(record.path) ~= "string" or length < 0
+        or cursor + length - 1 > #bytes then
+      return nil, "Crystal asset bundle record is invalid"
+    end
+    record.offset = cursor
+    index[record.path] = record
+    cursor = cursor + length
+  end
+  if cursor - 1 ~= #bytes then return nil, "Crystal asset bundle has trailing data" end
+  return index, bytes
+end
+
+local function loadBundle()
+  if bundleLoaded then return bundleIndex ~= nil end
+  bundleLoaded = true
+  local ok, bytes = storageCall("readBytes", ASSET_BUNDLE_KEY)
+  if not ok or type(bytes) ~= "string" then return false end
+  local index, rasterOrErr = decodeBundle(bytes)
+  if not index then return false, rasterOrErr end
+  bundleIndex, bundleRaster = index, rasterOrErr
+  return true
+end
+
 function Cache.bind(mod)
   modRef = mod
   selectedOwner = nil
@@ -249,8 +341,36 @@ function Cache.writeAsset(path, spec)
   return write(key, { spec = spec })
 end
 
+-- Fast import path: collect generated assets in memory, then commit one
+-- compressed opaque bundle instead of thousands of transactional table files.
+function Cache.stageAsset(path, spec)
+  if not safeAssetKey(path) then return false, "invalid Crystal generated-asset path" end
+  memoryAssets[path] = spec
+  imageDataCache[path] = nil
+  return true
+end
+
+function Cache.stageContent(content)
+  memoryContent = content
+  memoryNeedsPersist = true
+  persistPaths, persistIndex = nil, nil
+  return true
+end
+
 function Cache.readAsset(path)
   if memoryAssets[path] then return memoryAssets[path] end
+  if loadBundle() then
+    local record = bundleIndex and bundleIndex[path]
+    if record then
+      local spec = {
+        raster = bundleRaster:sub(record.offset, record.offset + record.length - 1),
+        width = record.width, height = record.height,
+        palette = record.palette, presentation = record.presentation,
+      }
+      memoryAssets[path] = spec
+      return spec
+    end
+  end
   local key = safeAssetKey(path)
   local record = key and read(key) or nil
   return type(record) == "table" and record.spec or nil
@@ -269,6 +389,7 @@ function Cache.clear()
   memoryAssets, memoryContent = {}, nil
   memoryNeedsPersist = false
   persistPaths, persistIndex = nil, nil
+  bundleIndex, bundleRaster, bundleLoaded = nil, nil, nil
   return true
 end
 
@@ -307,9 +428,7 @@ function Cache.importPackaged()
           end,
         })
         content.sourceSha1, content.importFiles = hash, files
-        memoryContent = content
-        memoryNeedsPersist = true
-        persistPaths, persistIndex = nil, nil
+        Cache.stageContent(content)
         return content
       end
     end
@@ -321,6 +440,14 @@ function Cache.hasPendingPersist()
   return memoryNeedsPersist and memoryContent ~= nil
 end
 
+-- Progress for the visible first-run cache screen.  The final content record
+-- is one unit because it is the commit marker written after every sprite.
+function Cache.persistProgress()
+  local total = 2 -- compressed asset bundle, then content commit marker
+  if not Cache.hasPendingPersist() then return total, total end
+  return persistIndex and (persistIndex - 1) or 0, total
+end
+
 -- Commit an in-memory packaged-ROM extraction to the real playthrough a few
 -- assets at a time. The content record is written last and acts as the commit
 -- marker: a restart during this copy simply falls back to the required ROM and
@@ -329,28 +456,21 @@ function Cache.persistMemoryStep(limit)
   if not Cache.hasPendingPersist() then return true end
   if not gameplayActive(game()) then return false end
 
-  if not persistPaths then
-    persistPaths = {}
-    for path in pairs(memoryAssets) do persistPaths[#persistPaths + 1] = path end
-    table.sort(persistPaths)
-    persistIndex = 1
-  end
-
-  limit = math.max(1, math.floor(tonumber(limit) or 16))
-  local stop = math.min(#persistPaths, persistIndex + limit - 1)
-  while persistIndex <= stop do
-    local path = persistPaths[persistIndex]
-    local key = safeAssetKey(path)
-    if not key then return false, "invalid Crystal generated-asset path" end
-    local ok, wrote, code, message = storageCall("write", key, { spec=memoryAssets[path] })
+  if not persistIndex then
+    local encoded, assetCount
+    local encodedOk, encodeErr = pcall(function()
+      encoded, assetCount = encodeBundle(memoryAssets)
+    end)
+    if not encodedOk then return false, tostring(encodeErr) end
+    local ok, wrote, code, message = storageCall("writeBytes", ASSET_BUNDLE_KEY, encoded)
     if not ok then return false, tostring(wrote) end
     if not wrote then
-      return false, tostring(message or code or "Crystal asset cache write failed")
+      return false, tostring(message or code or "Crystal asset bundle write failed")
     end
-    persistIndex = persistIndex + 1
+    persistPaths = assetCount
+    persistIndex = 2
+    return false
   end
-
-  if persistIndex <= #persistPaths then return false end
 
   local ok, wrote, code, message = storageCall("write", CONTENT_KEY, { content=memoryContent })
   if not ok then return false, tostring(wrote) end
