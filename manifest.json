@@ -1,7 +1,7 @@
 {
   "id": "CRYSTAL_251",
   "name": "Crystal 251",
-  "version": "0.11.5",
+  "version": "0.11.6",
   "api": 2,
   "entry": "main.lua",
   "profile": "overhaul",
@@ -21,7 +21,6 @@
     "gen3_battle_ui"
   ],
   "incompatible": [
-    "trainer_rematch",
     "Kanto-Reforged"
   ],
   "affects_link": true,
