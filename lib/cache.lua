@@ -284,6 +284,90 @@ local function loadBundle()
   return true
 end
 
+local function requiredAssetPaths(content)
+  local paths, seen = {}, {}
+  local function add(path)
+    if type(path) == "string" and path:sub(1, #VIRTUAL_PREFIX) == VIRTUAL_PREFIX
+        and path:sub(-4):lower() == ".png" and not seen[path] then
+      seen[path] = true
+      paths[#paths + 1] = path
+    end
+  end
+  if type(content and content.importFiles) == "table"
+      and #content.importFiles > 0 then
+    for _, path in ipairs(content.importFiles) do add(path) end
+  else
+    -- Schema-24 caches predate the authoritative importFiles list. Recover the
+    -- required image set from the public content record without including cry
+    -- paths, which are synthesized at runtime rather than stored as rasters.
+    local visited = {}
+    local function scan(value)
+      if type(value) == "string" then add(value)
+      elseif type(value) == "table" and not visited[value] then
+        visited[value] = true
+        for _, child in pairs(value) do scan(child) end
+      end
+    end
+    scan(content)
+  end
+  table.sort(paths)
+  return paths
+end
+
+local function validAssetSpec(spec)
+  local width = type(spec) == "table" and tonumber(spec.width) or nil
+  local height = type(spec) == "table" and tonumber(spec.height) or nil
+  return type(spec) == "table" and type(spec.raster) == "string"
+    and width and height and width > 0 and height > 0
+    and #spec.raster == width * height
+end
+
+-- A content record is only a valid commit marker when every raster it names is
+-- present too. Older/interrupted imports could leave cache/content behind after
+-- the per-asset files or schema-25 bundle disappeared; accepting that metadata
+-- deferred the failure until the first Pokemon sprite was drawn.
+function Cache.assetsComplete(content)
+  local paths = requiredAssetPaths(content)
+  if #paths == 0 then return false, "Crystal cache names no generated images" end
+
+  if content.schema == 25 then
+    local needsBundle = false
+    for _, path in ipairs(paths) do
+      if not memoryAssets[path] then needsBundle = true break end
+    end
+    if needsBundle then
+      local loaded, bundleErr = loadBundle()
+      if not loaded then
+        return false, bundleErr or "Crystal asset bundle is missing"
+      end
+    end
+    for _, path in ipairs(paths) do
+      local spec = memoryAssets[path]
+      if spec then
+        if not validAssetSpec(spec) then
+          return false, "Crystal asset is invalid: " .. path
+        end
+      else
+        local record = bundleIndex and bundleIndex[path]
+        local width = record and tonumber(record.width)
+        local height = record and tonumber(record.height)
+        if not (record and width and height and width > 0 and height > 0
+            and record.length == width * height) then
+          return false, "Crystal asset is missing from bundle: " .. path
+        end
+      end
+    end
+    return true
+  end
+
+  for _, path in ipairs(paths) do
+    if not validAssetSpec(Cache.readAsset(path)) then
+      return false, "Crystal asset is missing: " .. path
+    end
+  end
+  return true
+end
+
 function Cache.bind(mod)
   modRef = mod
   selectedOwner = nil

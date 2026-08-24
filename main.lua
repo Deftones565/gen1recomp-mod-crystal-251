@@ -48,7 +48,10 @@ local function cacheSupported(content)
   if type(content) ~= "table" or not supported[content.schema] then return false end
   local Gender = require("mods.CRYSTAL_251.battle.crystal_gender")
   local Daycare = require("mods.CRYSTAL_251.daycare")
-  return Gender.cacheHasRatios(content) and Daycare.cacheHasData(content)
+  if not (Gender.cacheHasRatios(content) and Daycare.cacheHasData(content)) then
+    return false, "Crystal cache metadata is incomplete"
+  end
+  return Cache.assetsComplete(content)
 end
 
 local function loadCache(mod)
@@ -63,7 +66,8 @@ local function loadCache(mod)
   local playthrough = context and context.playthroughId or "none"
   local version = context and context.gameVersion or "unknown"
 
-  if cacheSupported(stored) then
+  local supported, supportReason = cacheSupported(stored)
+  if supported then
     mod.log:info("Crystal cache: state=valid game=%s playthrough=%s",
       tostring(version), tostring(playthrough))
     return stored, false
@@ -71,8 +75,8 @@ local function loadCache(mod)
 
   local stale = stored ~= nil
   if stale then
-    mod.log:warn("Crystal cache: state=stale game=%s playthrough=%s; rebuilding from required ROM",
-      tostring(version), tostring(playthrough))
+    mod.log:warn("Crystal cache: state=stale game=%s playthrough=%s (%s); rebuilding from required ROM",
+      tostring(version), tostring(playthrough), tostring(supportReason or "invalid cache"))
   elseif state == "error" then
     mod.log:error("Crystal cache: state=error code=%s game=%s playthrough=%s: %s",
       tostring(code), tostring(version), tostring(playthrough), tostring(message))

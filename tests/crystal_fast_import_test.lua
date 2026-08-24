@@ -35,7 +35,8 @@ T.check(Cache.stageAsset(secondPath, {
   raster="\3\2\1\0", width=2, height=2,
   palette={{248,248,248},{160,120,80},{64,32,16},{0,0,0}},
 }), "second generated asset stages")
-T.check(Cache.stageContent({ schema=25, species={}, moves={} }),
+T.check(Cache.stageContent({ schema=25, species={}, moves={},
+  importFiles={firstPath,secondPath} }),
   "content commit stages")
 local done, err = Cache.persistMemoryStep(1)
 T.check(not done and not err, "asset bundle commits before content marker")
@@ -57,5 +58,18 @@ T.eq(first.raster, "\0\1\2\3", "ordinary asset round-trips through bundle")
 T.eq(first.presentation, "dex", "asset presentation metadata round-trips")
 T.eq(second.raster, "\3\2\1\0", "shiny asset round-trips through bundle")
 T.eq(second.palette[2][2], 120, "asset palette metadata round-trips")
+T.check(Cache.assetsComplete(content),
+  "a complete content record and asset bundle pass integrity validation")
+
+-- Reproduce the field report: metadata survived, but the opaque image bundle
+-- did not. A cold process must reject this cache during mod load instead of
+-- crashing later when Pikachu is first drawn.
+opaque["cache/assets_bundle"] = nil
+package.loaded["mods.CRYSTAL_251.lib.cache"] = nil
+Cache = require("mods.CRYSTAL_251.lib.cache").bind(mod)
+local incomplete = Cache.readContent()
+local complete, reason = Cache.assetsComplete(incomplete)
+T.check(not complete and tostring(reason):find("bundle", 1, true),
+  "content without its asset bundle is rejected before sprite rendering")
 
 T.finish("Crystal fast import cache")

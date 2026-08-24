@@ -19,7 +19,13 @@ local ROWS = {
   {map="CERULEAN_TRADE_HOUSE",index=3,x=6,y=4,sprite="SPRITE_YOUNGSTER",
     text="TEXT_CRYSTAL251_TRADE_KYLE",give="BELLSPROUT",get="ONIX",nickname="ROCKY",
     flag="MOD_CRYSTAL251_TRADED_BELLSPROUT_FOR_ONIX",dialogset=1,
-    after="ROCKY likes a\nTRAINER who keeps\vmoving!"},
+    after="ROCKY likes a\nTRAINER who keeps\vmoving!",
+    -- Yellow replaces Cerulean's trade house with Melanie's house. Patching
+    -- the absent id creates a partial map record (objects but no warps), and
+    -- Gen 1's elevator floor scan then crashes on that malformed record.
+    -- Keep Kyle in Cerulean on a walkable edge cell that does not obstruct the
+    -- Pokemon Center's entrance, counter, link desk, or central aisle.
+    fallback={map="CERULEAN_POKECENTER",index=6,x=12,y=3}},
   {map="VERMILION_TRADE_HOUSE",index=2,x=6,y=4,sprite="SPRITE_SAILOR",
     text="TEXT_CRYSTAL251_TRADE_TIM",give="KRABBY",get="VOLTORB",nickname="VOLTY",
     flag="MOD_CRYSTAL251_TRADED_KRABBY_FOR_VOLTORB",dialogset=3,
@@ -51,7 +57,14 @@ function Trades.install(mod)
   local tableRows=copy(mod.content.field:get("trades") or {})
   local locations=copy(mod.content.field:get("tradeLocations") or NATIVE_LOCATIONS)
   local installed={}
-  for offset,row in ipairs(ROWS) do
+  for offset,definition in ipairs(ROWS) do
+    local row=copy(definition)
+    if not mod.content.maps:get(row.map) and row.fallback then
+      for key,value in pairs(row.fallback) do row[key]=value end
+    end
+    row.fallback=nil
+    assert(mod.content.maps:get(row.map),
+      "Crystal 251 trade map is unavailable: "..tostring(row.map))
     local tradeIndex=#tableRows+1
     local afterId="CRYSTAL251_TRADE_AFTER_"..offset
     mod.content.text:register(afterId,row.after)
