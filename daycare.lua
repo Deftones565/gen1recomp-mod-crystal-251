@@ -219,7 +219,8 @@ local function pushMove(data, list, id)
   if not id then return end
   for _, move in ipairs(list) do if move.id == id then return end end
   local def = data.moves and data.moves[id]
-  local entry = { id=id, pp=def and def.pp or 0 }
+  local pp = def and def.pp or 0
+  local entry = { id=id, pp=pp, maxPp=pp }
   if #list < 4 then
     list[#list + 1] = entry
   else
@@ -230,9 +231,19 @@ end
 
 local function reverseEvolutions(data)
   local reverse = {}
+  local speciesList = {}
   for species, def in pairs(data.pokemon or {}) do
+    speciesList[#speciesList + 1] = { id=species, dex=def.dex or 9999 }
+  end
+  table.sort(speciesList, function(a, b)
+    if a.dex ~= b.dex then return a.dex < b.dex end
+    return a.id < b.id
+  end)
+  for _, entry in ipairs(speciesList) do
+    local species, def = entry.id, data.pokemon[entry.id]
     for _, evo in ipairs(def.evolutions or {}) do
-      if evo.species and reverse[evo.species] == nil then reverse[evo.species] = species end
+      local evolved = evo.into or evo.species
+      if evolved and reverse[evolved] == nil then reverse[evolved] = species end
     end
   end
   return reverse
@@ -298,11 +309,11 @@ function Daycare.makeEgg(data, mon1, mon2, rng, player)
     species=species, level=EGG_LEVEL, exp=0, dvs=dvs,
     statExp={ hp=0, attack=0, defense=0, speed=0, special=0 },
     status=nil, moves={}, nickname="EGG", isEgg=true,
-    eggCycles=assert(tonumber(def.crystalHatchCycles),
+    eggCycles=assert(tonumber(def.eggSteps or def.crystalHatchCycles),
       "missing Crystal hatch cycles for " .. species),
     -- Crystal stores the remaining hatch cycles in the happiness byte while
     -- the party member is still an Egg, then sets real happiness on hatch.
-    happiness=assert(tonumber(def.crystalHatchCycles)),
+    happiness=assert(tonumber(def.eggSteps or def.crystalHatchCycles)),
     otId=player and player.id or nil,
     ot=player and player.name or nil,
   }
@@ -328,8 +339,8 @@ function Daycare.makeEgg(data, mon1, mon2, rng, player)
 
   local donor, other = moveDonor(mon1, mon2)
   local otherMoves = movesSet(other)
-  local levelMoves = listSet(def.learnset, "move")
-  local eggMoves = listSet(def.crystalEggMoves)
+  local levelMoves = listSet(def.levelMoves or def.learnset, "move")
+  local eggMoves = listSet(def.eggMoves or def.crystalEggMoves)
   local tmhm = listSet(def.tmhm)
   for _, move in ipairs((donor and donor.moves) or {}) do
     local id = move.id

@@ -1,9 +1,9 @@
 # Crystal move parity workflow
 
-This workflow covers the complete Crystal move set. Moves introduced in
-Generation II occupy indices 166 through 251; ordinary Generation I move data
-remains native, while the small set whose Crystal command family differs is
-patched through mod-owned effect records.
+This workflow covers the complete Crystal move set. Crystal 251 runs the
+complete Generation II move table on the Generation I battle shell: moves
+1 through 251 use Crystal metadata, type-based physical/special categories,
+effect chances, and Crystal command/effect routing.
 
 The parity suite is intentionally red until every move is implemented. It
 contains a canonical manifest of all 86 moves, verifies the imported ROM data,
@@ -34,7 +34,8 @@ many moves.
 2. **Registry contract**
    - The move resolves to a real effect record.
    - `implemented=false` placeholders are rejected.
-   - Moves 1 through 165 remain byte-for-byte unchanged after the mod loads.
+   - Moves 1 through 251 resolve to the imported Crystal move rows after the
+     mod loads.
 
 3. **Deterministic effect contract**
    - Scripted RNG forces hit, miss, minimum, maximum, and secondary-effect

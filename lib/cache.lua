@@ -17,6 +17,7 @@ local memoryContent
 local memoryNeedsPersist = false
 local persistPaths, persistIndex
 local bundleIndex, bundleRaster, bundleLoaded
+local recoveryAttempted = false
 local selectedOwner
 local selectedOwnerCode, selectedOwnerMessage
 
@@ -296,20 +297,20 @@ local function requiredAssetPaths(content)
   if type(content and content.importFiles) == "table"
       and #content.importFiles > 0 then
     for _, path in ipairs(content.importFiles) do add(path) end
-  else
-    -- Schema-24 caches predate the authoritative importFiles list. Recover the
-    -- required image set from the public content record without including cry
-    -- paths, which are synthesized at runtime rather than stored as rasters.
-    local visited = {}
-    local function scan(value)
-      if type(value) == "string" then add(value)
-      elseif type(value) == "table" and not visited[value] then
-        visited[value] = true
-        for _, child in pairs(value) do scan(child) end
-      end
-    end
-    scan(content)
   end
+  -- Always scan the public record as well.  A partially committed older
+  -- cache can have an importFiles list that omits a sprite still referenced
+  -- by the species records; accepting it defers the crash until rendering.
+  -- Cry/audio paths are ignored by add(), so this is safe for schema 24/25.
+  local visited = {}
+  local function scan(value)
+    if type(value) == "string" then add(value)
+    elseif type(value) == "table" and not visited[value] then
+      visited[value] = true
+      for _, child in pairs(value) do scan(child) end
+    end
+  end
+  scan(content)
   table.sort(paths)
   return paths
 end
@@ -370,6 +371,7 @@ end
 
 function Cache.bind(mod)
   modRef = mod
+  recoveryAttempted = false
   selectedOwner = nil
   selectedOwnerCode, selectedOwnerMessage = nil, nil
   return Cache
@@ -457,7 +459,18 @@ function Cache.readAsset(path)
   end
   local key = safeAssetKey(path)
   local record = key and read(key) or nil
-  return type(record) == "table" and record.spec or nil
+  local spec = type(record) == "table" and record.spec or nil
+  if spec then return spec end
+
+  -- A legacy cache can contain a valid content record while its per-asset
+  -- storage is incomplete. Recover once from the packaged ROM so rendering
+  -- does not crash on the first missing battle sprite.
+  if not recoveryAttempted and not memoryContent and modRef then
+    recoveryAttempted = true
+    local ok = pcall(function() Cache.importPackaged() end)
+    if ok and memoryAssets[path] then return memoryAssets[path] end
+  end
+  return nil
 end
 
 function Cache.clear()

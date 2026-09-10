@@ -8,6 +8,7 @@ local CrystalAI = {}
 
 local MoveScripts = require("mods.CRYSTAL_251.battle.move_scripts")
 local CrystalDamage = require("mods.CRYSTAL_251.battle.crystal_damage")
+local Gen2AI = require("mods.CRYSTAL_251.battle.gen2.Ai")
 
 local BASE_SCORE = 20
 local UNUSABLE_SCORE = 80
@@ -20,6 +21,40 @@ CrystalAI.BASE_SWITCH_SCORE = BASE_SWITCH_SCORE
 local LAYER_ORDER = {
   "basic", "setup", "types", "offensive", "smart",
   "opportunist", "aggressive", "cautious", "status", "risky",
+}
+
+-- The Gen I extractor keeps the original effect aliases for compatibility.
+-- Translate the effects that Gen 2's released AI actually scores before
+-- handing a move to the vendored Gen 2 scorer.
+local GEN2_EFFECTS = {
+  [1]="EFFECT_SLEEP", [2]="EFFECT_POISON", [3]="EFFECT_LEECH_SEED",
+  [4]="EFFECT_BURN", [5]="EFFECT_FREEZE", [6]="EFFECT_PARALYZE",
+  [8]="EFFECT_DREAM_EATER", [10]="EFFECT_ATTACK_UP", [11]="EFFECT_DEFENSE_UP",
+  [12]="EFFECT_SPEED_UP", [13]="EFFECT_SP_ATK_UP", [14]="EFFECT_SP_DEF_UP",
+  [15]="EFFECT_ACCURACY_UP", [16]="EFFECT_EVASION_UP",
+  [18]="EFFECT_ATTACK_DOWN", [19]="EFFECT_DEFENSE_DOWN", [20]="EFFECT_SPEED_DOWN",
+  [21]="EFFECT_SP_ATK_DOWN", [22]="EFFECT_SP_DEF_DOWN", [23]="EFFECT_ACCURACY_DOWN",
+  [24]="EFFECT_EVASION_DOWN", [32]="EFFECT_HEAL", [33]="EFFECT_TOXIC",
+  [35]="EFFECT_LIGHT_SCREEN", [46]="EFFECT_MIST", [47]="EFFECT_FOCUS_ENERGY",
+  [49]="EFFECT_CONFUSE", [50]="EFFECT_ATTACK_UP_2", [51]="EFFECT_DEFENSE_UP_2",
+  [52]="EFFECT_SPEED_UP_2", [53]="EFFECT_SP_ATK_UP_2", [54]="EFFECT_SP_DEF_UP_2",
+  [55]="EFFECT_ACCURACY_UP_2", [56]="EFFECT_EVASION_UP_2",
+  [58]="EFFECT_ATTACK_DOWN_2", [59]="EFFECT_DEFENSE_DOWN_2", [60]="EFFECT_SPEED_DOWN_2",
+  [65]="EFFECT_REFLECT", [79]="EFFECT_SUBSTITUTE", [84]="EFFECT_LEECH_SEED",
+  [86]="EFFECT_DISABLE", [94]="EFFECT_ENCORE", [106]="EFFECT_MEAN_LOOK",
+  [108]="EFFECT_NIGHTMARE", [109]="EFFECT_CURSE", [111]="EFFECT_PROTECT",
+  [112]="EFFECT_SPIKES", [114]="EFFECT_PERISH_SONG", [115]="EFFECT_SANDSTORM",
+  [117]="EFFECT_ENDURE", [121]="EFFECT_ATTRACT", [124]="EFFECT_SAFEGUARD",
+  [130]="EFFECT_BATON_PASS", [131]="EFFECT_PURSUIT", [132]="EFFECT_RAPID_SPIN",
+  [136]="EFFECT_MORNING_SUN", [137]="EFFECT_SYNTHESIS", [138]="EFFECT_MOONLIGHT",
+  [140]="EFFECT_RAIN_DANCE", [141]="EFFECT_SUNNY_DAY", [145]="EFFECT_BELLY_DRUM",
+  [146]="EFFECT_PSYCH_UP", [147]="EFFECT_MIRROR_COAT", [149]="EFFECT_FUTURE_SIGHT",
+}
+
+local AI_FLAG_BY_LAYER = {
+  basic="BASIC", setup="SETUP", types="TYPES", offensive="OFFENSIVE",
+  smart="SMART", opportunist="OPPORTUNIST", aggressive="AGGRESSIVE",
+  cautious="CAUTIOUS", status="STATUS", risky="RISKY",
 }
 
 -- Crystal trainer-class attributes mapped onto the Kanto trainer identities
@@ -509,6 +544,76 @@ function CrystalAI.scoreMoves(battle,battler)
   return rows
 end
 
+local function gen2MoveDef(battle, moveInst)
+  local def = moveDef(battle, moveInst)
+  if not def then return nil end
+  local out = {}
+  for key, value in pairs(def) do out[key] = value end
+  local byte = effectByte(def)
+  out.effect = GEN2_EFFECTS[byte] or def.effect
+  return out
+end
+
+local function gen2Flags(battle)
+  local flags = 0
+  for _, layer in ipairs(CrystalAI.profileFor(battle).layers or {}) do
+    local name = AI_FLAG_BY_LAYER[layer]
+    local bit = name and Gen2AI.FLAGS[name]
+    if bit then flags = flags + bit end
+  end
+  return flags
+end
+
+local function typesForGen2(battle, mon)
+  if mon and mon.curTypes then return mon.curTypes end
+  local pokemon = battle.data and battle.data.pokemon
+  local def = pokemon and ((pokemon.get and pokemon:get(mon and mon.species))
+    or pokemon[mon and mon.species])
+  if not def then return {} end
+  if def.types then return def.types end
+  local out = {}
+  if def.type1 then out[#out + 1] = def.type1 end
+  if def.type2 and def.type2 ~= def.type1 then out[#out + 1] = def.type2 end
+  return out
+end
+
+local function chooseWithGen2AI(battle, battler, rng)
+  local target = battle.player or {}
+  local chart = battle.data and battle.data.type_chart or {}
+  local function random(n)
+    if n <= 1 then return 0 end
+    local value = rng(1, n)
+    return math.max(0, math.min(n - 1, value - 1))
+  end
+  local choice = Gen2AI.choose({
+    moves = battler.curMoves or {},
+    moveDef = function(id) return gen2MoveDef(battle, {id=id}) end,
+    attacker = { level=(battler.mon or {}).level or battler.level or 1,
+      stats=(battler.mon or {}).stats or battler.stats or {},
+      types=battler.curTypes or typesForGen2(battle, battler.mon or battler) },
+    defender = { hp=(target.mon or {}).hp or target.hp or 0,
+      stats=(target.mon or {}).stats or target.stats or {},
+      types=target.curTypes or typesForGen2(battle, target.mon or target) },
+    attackerStages = battler.stages or {}, defenderStages = target.stages or {},
+    typeChart = chart, flags = gen2Flags(battle), random = random,
+    data = battle.data, enemyTurns=battler.crystalTurnsTaken or 0,
+    playerTurns=target.crystalTurnsTaken or 0,
+    enemyHp=(battler.mon or {}).hp or battler.hp, enemyMaxHp=(battler.mon or {}).stats and battler.mon.stats.hp,
+    playerHp=(target.mon or {}).hp or target.hp, playerMaxHp=(target.mon or {}).stats and target.mon.stats.hp,
+  })
+  if choice then
+    local matches = {}
+    for _, move in ipairs(battler.curMoves or {}) do
+      if move.id == choice then matches[#matches + 1] = move end
+    end
+    -- Gen 2 returns a move id, while the Gen 1 shell keeps move instances.
+    -- Preserve the scorer's selected duplicate slot for test fixtures and
+    -- cloned moves by resolving the final tied instance deterministically.
+    if #matches > 1 then return matches[#matches] end
+    if matches[1] then return matches[1] end
+  end
+end
+
 function CrystalAI.chooseMove(battler,rng,battle)
   battle=battle or {}
   battler=battler or battle.enemy
@@ -519,6 +624,8 @@ function CrystalAI.chooseMove(battler,rng,battle)
   end
   if #usable==0 then return {id="STRUGGLE",pp=1,struggle=true} end
   if battle.kind=="wild" then return usable[rng(1,#usable)] end
+  local gen2Choice = chooseWithGen2AI(battle, battler, rng)
+  if gen2Choice then return gen2Choice end
   local rows=CrystalAI.scoreMoves(battle,battler)
   local best=UNUSABLE_SCORE
   for _,row in ipairs(rows) do if row.score<best then best=row.score end end

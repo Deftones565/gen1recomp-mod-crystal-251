@@ -366,16 +366,9 @@ local function parseEvolutionData(reader, pointerTable, speciesIds, moveIds, dex
       end
     elseif method == 4 then
       local time, target = reader:u8(pos), reader:u8(pos + 1); pos = pos + 2
-      local levels = { [172]=15, [173]=15, [174]=15, [175]=20, [42]=35, [113]=35 }
-      evo = { method = "LEVEL", level = levels[dex] or 35, species = speciesIds[target] }
-      if dex == 133 then
-        evo.method = "ITEM"
-        -- Crystal's happiness branches encode time-of-day, but a timeless
-        -- Gen I save has no clock. Preserve the two results deterministically:
-        -- Espeon uses Sun Stone and Umbreon uses Moon Stone.
-        evo.item = speciesIds[target] == "UMBREON" and "MOON_STONE" or "SUN_STONE"
-        evo.level = nil
-      end
+      local times = { [1]="ANYTIME", [2]="MORNDAY", [3]="NITE" }
+      evo = { method = "EVOLVE_HAPPINESS_" .. (times[time] or "ANYTIME"),
+        species = speciesIds[target] }
     elseif method == 5 then
       local level, compare, target = reader:u8(pos), reader:u8(pos + 1), reader:u8(pos + 2)
       pos = pos + 3

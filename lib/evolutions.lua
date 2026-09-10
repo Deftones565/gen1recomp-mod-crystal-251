@@ -4,6 +4,15 @@
 
 local Evolutions = {}
 
+-- Older Crystal caches were generated before the Gen 2 happiness method was
+-- available and encoded these rows as level/stone evolutions. Normalize them
+-- at load time so an existing cache receives the real Gen 2 trigger too.
+local happinessTargets = {
+  PIKACHU="ANYTIME", CLEFAIRY="ANYTIME", JIGGLYPUFF="ANYTIME",
+  TOGETIC="ANYTIME", CROBAT="ANYTIME", BLISSEY="ANYTIME",
+  ESPEON="MORNDAY", UMBREON="NITE",
+}
+
 Evolutions.levelTrades = {
   KADABRA = { species = "ALAKAZAM", level = 36 },
   MACHOKE = { species = "MACHAMP", level = 40 },
@@ -36,6 +45,14 @@ function Evolutions.normalize(species, rows)
   local out, found = {}, false
   for _, source in ipairs(rows or {}) do
     local row = copy(source)
+    if row.method == "EVOLVE_HAPPINESS" then
+      row = { method="EVOLVE_HAPPINESS_ANYTIME", species=row.species }
+    elseif happinessTargets[row.species]
+       and ((row.method == "LEVEL" and not levelRule)
+         or (species == "EEVEE" and row.method == "ITEM")) then
+      row = { method="EVOLVE_HAPPINESS_" .. happinessTargets[row.species],
+        species=row.species }
+    end
     if levelRule and row.species == levelRule.species then
       row = { method = "LEVEL", level = levelRule.level,
         species = levelRule.species }

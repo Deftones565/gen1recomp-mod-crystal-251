@@ -229,7 +229,7 @@ do
   eq(b.enemy.substituteHP, nil, "Future Sight can break Substitute")
 end
 
--- Weather runs after Future Sight, damages in serial order, and clears only
+-- Weather runs before held-item recovery and Future Sight, damages in serial order, and clears only
 -- after the final weather tick has applied.
 do
   local p, e = battler("MEW", true), battler("GEODUDE", false)
@@ -254,8 +254,8 @@ do
     "player Perish message is first in local order")
 end
 
--- End-phase item order: action poison first, then Leftovers; healing berries
--- remain in the later healing-items phase.
+-- End-phase item order: action poison first, then held-item recovery in the
+-- Gen 2 held-item phase.
 do
   local b = battle()
   b.player.mon.status = "PSN"
@@ -334,9 +334,9 @@ do
   b.crystalSchedulerTrace = {}
   Scheduler.endTurn(b)
   eq(table.concat(b.crystalSchedulerTrace, ","),
-    "residual:player,residual:enemy,future_sight,weather,wrap,perish," ..
-    "leftovers,mysteryberry,defrost,safeguard,screens,healing,encore,lockon",
-    "scheduler follows Crystal HandleBetweenTurnEffects order")
+    "residual:player,residual:enemy,weather,wrap,leftovers,mysteryberry," ..
+    "healing,future_sight,perish,defrost,safeguard,screens,encore,lockon",
+    "scheduler follows Gen 2 HandleBetweenTurnEffects order")
 end
 
 -- Guest/link order reverses paired effects without changing phase order.

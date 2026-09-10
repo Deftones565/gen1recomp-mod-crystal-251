@@ -1,14 +1,15 @@
 local Effects = {}
 Effects.CHANCE_EFFECTS = {}
 
--- Crystal-only effects use stable byte ids. Most moves 1..165 still use the
--- underlying effect registry, but the split-stat milestone migrates the old
--- moves whose Generation I handlers would couple Special Attack and Defense.
+-- Crystal-only effects use stable byte ids.  The move table is canonicalized
+-- from Crystal for all 251 moves, including moves 1..165; this module owns the
+-- Crystal effect records that the Gen I battle shell dispatches.
 function Effects.install(mod)
   local MoveEffects = require("src.battle.MoveEffects")
   local EffectRegistry = require("src.battle.EffectRegistry")
   local TypeChart = require("src.battle.TypeChart")
   local CrystalDamage = require("mods.CRYSTAL_251.battle.crystal_damage")
+  local Gen2Effects = require("mods.CRYSTAL_251.battle.gen2.Effects")
   local CrystalStats = require("mods.CRYSTAL_251.battle.crystal_stats")
   local SpecialDamage = require("mods.CRYSTAL_251.battle.special_damage")
   local MultiTurn = require("mods.CRYSTAL_251.battle.multi_turn")
@@ -17,6 +18,8 @@ function Effects.install(mod)
   local CrystalItems = require("mods.CRYSTAL_251.battle.crystal_items")
   local CrystalScheduler = require("mods.CRYSTAL_251.battle.crystal_scheduler")
   local CrystalProgression = require("mods.CRYSTAL_251.battle.crystal_progression")
+  local Gen2TurnOrder = require("mods.CRYSTAL_251.battle.gen2.TurnOrder")
+  local registered = {}
   if not EffectRegistry._crystal251InvulnerabilityBridge then
     EffectRegistry._crystal251InvulnerabilityBridge = true
     local runDamaging = EffectRegistry.runDamaging
@@ -73,6 +76,7 @@ function Effects.install(mod)
     end
     if run ~= nil then def.run = run end
     mod.content.move_effects:register(id, def)
+    registered[code] = true
   end
 
   -- Old and new command-specific damage moves share the same mod-local
@@ -466,8 +470,10 @@ function Effects.install(mod)
       local consecutive = user.protectLastTurn == turn - 1
       user.protectChain = consecutive and ((user.protectChain or 1) + 1) or 1
       user.protectLastTurn = turn
-      local denominator = 2 ^ math.min(7, user.protectChain - 1)
-      if denominator > 1 and ctx.rng(1, denominator) ~= 1 then
+      local consecutiveUses = math.max(0, user.protectChain - 1)
+      if not Gen2Effects.protectSucceeds(consecutiveUses, function(n)
+        return math.max(0, ctx.rng(0, n - 1))
+      end) then
         user.protectChain = nil
         return { "But, it failed!" }
       end
@@ -538,10 +544,10 @@ function Effects.install(mod)
   for _, code in ipairs({ 132, 133, 134 }) do -- Morning Sun / Synthesis / Moonlight
     record(code, "primary", function(ctx)
       if ctx.user.mon.hp >= ctx.user.mon.stats.hp then return { "But, it failed!" } end
-      local numerator, denominator = 1, 2
-      if ctx.battle.weather == "sun" then numerator, denominator = 2, 3
-      elseif ctx.battle.weather then numerator, denominator = 1, 4 end
-      local heal = math.max(1, math.floor(ctx.user.mon.stats.hp * numerator / denominator))
+      local wants = ({ [132]=0, [133]=1, [134]=2 })[code]
+      local fraction = Gen2Effects.timeBasedHealFraction(
+        ctx.battle.weather, wants, ctx.battle.timeOfDay)
+      local heal = math.max(1, math.floor(ctx.user.mon.stats.hp * fraction))
       ctx.user.mon.hp = math.min(ctx.user.mon.stats.hp, ctx.user.mon.hp + heal)
       ctx.drain()
       return { name(ctx, ctx.user) .. " regained health!" }
@@ -649,12 +655,29 @@ function Effects.install(mod)
     return messages
   end)
 
+  -- The imported Crystal table is authoritative for all 157 effect bytes.
+  -- Register the remaining neutral bytes locally as Gen 2 records too, so
+  -- no move can fall through to the Gen 1 effect registry.  Bytes with a
+  -- command implementation above retain their real handler; an unimplemented
+  -- byte remains an ordinary hit (or an explicit failure for a status move)
+  -- until its command body is added, instead of silently acquiring Gen 1
+  -- semantics.
+  for code = 0, 0x9c do
+    if not registered[code] then
+      record(code, "full", nil)
+    end
+  end
+
   mod.hooks:wrap("battle.accuracy", function(next, ctx)
     return CrystalItems.withBrightPowder(next, ctx)
   end, 40)
 
   mod.hooks:wrap("battle.turn_order", function(next, a, aMove, b, bMove, ctx)
-    return CrystalItems.firstMover(next, a, aMove, b, bMove, ctx)
+    if not ((a and a.crystal251Active) or (b and b.crystal251Active)) then
+      return next(a, aMove, b, bMove, ctx)
+    end
+    return Gen2TurnOrder.firstMover(a, aMove, b, bMove,
+      ctx and ctx.rng, ctx and ctx.invertTie)
   end, 40)
 
   mod.hooks:wrap("battle.accuracy", function(next, ctx)
@@ -685,22 +708,23 @@ function Effects.install(mod)
     local oldTargetTypes = target.curTypes
     local hp, maxhp = user.mon.hp, user.mon.stats.hp
     if move.id == "RETURN" then
-      move.power = math.max(1, math.floor((user.mon.happiness or 70) * 10 / 25))
+      move.power = math.max(1, Gen2Effects.happinessPower(user.mon.happiness or 70, false))
     elseif move.id == "FRUSTRATION" then
-      move.power = math.max(1, math.floor((255 - (user.mon.happiness or 70)) * 10 / 25))
+      move.power = math.max(1, Gen2Effects.happinessPower(user.mon.happiness or 70, true))
     elseif move.id == "FLAIL" or move.id == "REVERSAL" then
       local ratio = math.floor(48 * hp / math.max(1, maxhp))
       move.power = ratio <= 1 and 200 or ratio <= 4 and 150 or ratio <= 9 and 100
         or ratio <= 16 and 80 or ratio <= 32 and 40 or 20
     elseif move.id == "MAGNITUDE" then
-      local roll = ctx.rng(1, 100)
-      move.power = roll <= 5 and 10 or roll <= 15 and 30 or roll <= 35 and 50
-        or roll <= 65 and 70 or roll <= 85 and 90 or roll <= 95 and 110 or 150
+      move.power = Gen2Effects.magnitudePower(function(n)
+        return ctx.rng(0, n - 1)
+      end)
     elseif move.id == "ROLLOUT" and not (ctx.opts and ctx.opts.crystalSequence) then
-      move.power = oldPower * (2 ^ (user.rolloutCount or 0))
-      if user.defenseCurl then move.power = move.power * 2 end
+      move.power = Gen2Effects.rampedPower(oldPower, user.rolloutCount or 0,
+        user.defenseCurl)
     elseif move.id == "FURY_CUTTER" and not (ctx.opts and ctx.opts.crystalSequence) then
-      move.power = oldPower * (2 ^ math.min(4, user.furyCutterCount or 0))
+      move.power = Gen2Effects.rampedPower(oldPower, user.furyCutterCount or 0,
+        false)
     elseif move.id == "HIDDEN_POWER" then
       local d = user.mon.dvs or {}
       local types = { "FIGHTING", "FLYING", "POISON", "GROUND", "ROCK", "BUG",

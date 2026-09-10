@@ -1,6 +1,13 @@
 local Gender = require("mods.CRYSTAL_251.battle.crystal_gender")
+local Happiness = require("mods.CRYSTAL_251.core.gen2.Happiness")
 
 local Progression = {}
+Progression.Happiness = Happiness
+
+function Progression.ensureHappiness(mon)
+  if type(mon) ~= "table" or mon.isEgg then return end
+  if mon.happiness == nil then mon.happiness = Happiness.BASE end
+end
 
 local BALLS = {
   MASTER_BALL=true, ULTRA_BALL=true, GREAT_BALL=true, POKE_BALL=true,
@@ -117,6 +124,7 @@ function Progression.prepareCaughtMon(battle)
   local mon = battle and battle.enemy and battle.enemy.mon
   if not mon then return end
   if transformed(battle.enemy) then mon.species = "DITTO" end
+  Progression.ensureHappiness(mon)
   if battle.lastBall == "FRIEND_BALL" then mon.happiness = 200 end
   mon.caughtData = {
     level = mon.level,
@@ -255,6 +263,7 @@ function Progression.installRuntime()
         data.growth_rates)
       while mon.level < math.min(newLevel, cap) do
         mon.level = mon.level + 1
+        Happiness.levelUp(mon)
         local old = mon.stats
         mon.stats = Stats.calc(speciesDef, mon.level, mon.dvs, mon.statExp)
         mon.hp = math.min(mon.stats.hp, mon.hp + (mon.stats.hp - old.hp))

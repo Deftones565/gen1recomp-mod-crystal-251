@@ -1,10 +1,9 @@
 -- Pokemon Crystal turn-resolution and between-turn scheduler.
 --
--- Crystal does not perform one shared poison/burn sweep after both moves.
--- Each battler takes its own poison/burn/seed/nightmare/curse residual
--- immediately after its action.  Only then does HandleBetweenTurnEffects run:
--- Future Sight, weather, partial trapping, Perish Song, held recovery,
--- defrost, Safeguard, screens, healing items, and Encore.
+-- Gen 2 resolves the shared end-of-turn pipeline in battler order:
+-- weather, status damage, Leech Seed/Curse/Nightmare, partial trapping,
+-- held recovery, Future Sight, Perish Song, defrost, Safeguard, screens,
+-- Encore, and lock-on counters.
 
 local Runtime = require("src.mods.Runtime")
 local CrystalItems = require("mods.CRYSTAL_251.battle.crystal_items")
@@ -74,20 +73,11 @@ function Scheduler.afterAction(battle, battler, opponent)
      or battle.result or not alive(battler) or not alive(opponent) then
     return false
   end
-  local key = sideKey(battler)
-  local turn = battle.turnCount or 0
-  if battler.crystalEnteredTurn and battler.crystalEnteredTurn > turn then
-    return false
-  end
   battle.crystalResidualTurns = battle.crystalResidualTurns or {}
-  if battle.crystalResidualTurns[key] == turn then return false end
-  battle.crystalResidualTurns[key] = turn
   battle.crystalActionOrder = battle.crystalActionOrder or {}
-  battle.crystalActionOrder[#battle.crystalActionOrder + 1] = key
-  trace(battle, "residual", battler)
-  local messages = CrystalStatus.actionResidual(battler, opponent, battle)
-  queueMessages(battle, battler, messages)
-  faintIfNeeded(battle, battler)
+  battle.crystalActionOrder[#battle.crystalActionOrder + 1] = sideKey(battler)
+  -- Gen 2 applies residuals in HandleBetweenTurnEffects, after weather and
+  -- in battler order. The action hook only records that the action happened.
   return true
 end
 
@@ -95,12 +85,7 @@ local function ensureActionResiduals(battle)
   -- Direct test probes and a few nonstandard battle drivers emit turn_ended
   -- without going through executeAction.  Preserve exact live behavior while
   -- giving those callers the same result once per side.
-  for _, battler in ipairs(endOrder(battle)) do
-    local opponent = opponentOf(battle, battler)
-    if alive(battler) and alive(opponent) then
-      Scheduler.afterAction(battle, battler, opponent)
-    end
-  end
+  return battle
 end
 
 local function checkFaints(battle)
@@ -114,7 +99,8 @@ local function checkFaints(battle)
 end
 
 local function weatherDamage(battle, battler)
-  if battle.weather ~= "sandstorm" or not alive(battler) then return 0 end
+  if battle.weather ~= "sandstorm" or not alive(battler)
+      or battler.invulnerableMove == "DIG" then return 0 end
   for _, typeId in ipairs(battler.curTypes or {}) do
     if typeId == "ROCK" or typeId == "GROUND" or typeId == "STEEL" then
       return 0
@@ -138,7 +124,6 @@ function Scheduler.handleWeather(battle)
     if animation then battle:animNext(animation, true) end
   end
   battle.weatherTurns = battle.weatherTurns - 1
-  for _, battler in ipairs(endOrder(battle)) do weatherDamage(battle, battler) end
   if battle.weatherTurns <= 0 then
     local ended = battle.weather
     battle.weather, battle.weatherTurns = nil, nil
@@ -147,7 +132,14 @@ function Scheduler.handleWeather(battle)
       elseif ended == "rain" then battle:sayNext("The rain stopped.")
       elseif ended == "sun" then battle:sayNext("The sunlight faded.") end
     end
+    return
   end
+  if battle.sayNext then
+    local text = ({sandstorm="The sandstorm rages.",
+      rain="The rain continues to fall.", sun="The sunlight is strong."})[battle.weather]
+    if text then battle:sayNext(text) end
+  end
+  for _, battler in ipairs(endOrder(battle)) do weatherDamage(battle, battler) end
 end
 
 function Scheduler.handleWrap(battle)
@@ -217,13 +209,21 @@ function Scheduler.endTurn(battle)
   if not battle.result then
     ensureActionResiduals(battle)
 
-    trace(battle, "future_sight")
-    SpecialDamage.tickFutureSight(battle, endOrder(battle))
+    trace(battle, "weather")
+    Scheduler.handleWeather(battle)
     checkFaints(battle)
 
     if not battle.result then
-      trace(battle, "weather")
-      Scheduler.handleWeather(battle)
+      for _, battler in ipairs(endOrder(battle)) do
+        if alive(battler) then
+          trace(battle, "status", battler)
+          queueMessages(battle, battler,
+            CrystalStatus.statusResidual(battler, battle))
+          trace(battle, "seed_curse", battler)
+          queueMessages(battle, battler,
+            CrystalStatus.seedCurseResidual(battler, opponentOf(battle, battler), battle))
+        end
+      end
       checkFaints(battle)
     end
     if not battle.result then
@@ -231,18 +231,23 @@ function Scheduler.endTurn(battle)
       Scheduler.handleWrap(battle)
       checkFaints(battle)
     end
+    if not battle.result then trace(battle, "leftovers"); CrystalItems.handleLeftovers(battle, endOrder(battle)) end
+    if not battle.result then trace(battle, "mysteryberry"); CrystalItems.handleMysteryBerry(battle, endOrder(battle)) end
+    if not battle.result then trace(battle, "healing"); CrystalItems.handleHealingItems(battle, endOrder(battle)) end
+
+    if not battle.result then
+      trace(battle, "future_sight")
+      SpecialDamage.tickFutureSight(battle, endOrder(battle))
+      checkFaints(battle)
+    end
     if not battle.result then
       trace(battle, "perish")
       CrystalStatus.tickPerish(battle, endOrder(battle))
       checkFaints(battle)
     end
-
-    if not battle.result then trace(battle, "leftovers"); CrystalItems.handleLeftovers(battle, endOrder(battle)) end
-    if not battle.result then trace(battle, "mysteryberry"); CrystalItems.handleMysteryBerry(battle, endOrder(battle)) end
     if not battle.result then trace(battle, "defrost"); CrystalStatus.handleDefrost(battle, endOrder(battle)) end
     if not battle.result then trace(battle, "safeguard"); CrystalStatus.tickSafeguard(battle, endOrder(battle)) end
     if not battle.result then trace(battle, "screens"); Scheduler.handleScreens(battle, endOrder(battle)) end
-    if not battle.result then trace(battle, "healing"); CrystalItems.handleHealingItems(battle, endOrder(battle)) end
     if not battle.result then trace(battle, "encore"); CrystalStatus.tickEncore(battle, endOrder(battle)) end
     if not battle.result then trace(battle, "lockon"); tickLockOn(battle) end
   end

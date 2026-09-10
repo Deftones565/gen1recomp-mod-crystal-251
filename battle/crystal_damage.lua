@@ -6,6 +6,10 @@
 -- until their dedicated migration patches.
 
 local CrystalDamage = {}
+-- Use the released Gen II rule kernels directly.  The surrounding code is the
+-- Gen I adapter (battler wrappers, queue, animation, and text); these modules
+-- remain the source of truth for the actual Crystal arithmetic.
+local Gen2Damage = require("mods.CRYSTAL_251.battle.gen2.Damage")
 local CrystalStats = require("mods.CRYSTAL_251.battle.crystal_stats")
 local CommandInterpreter = require("mods.CRYSTAL_251.battle.command_interpreter")
 local MoveScripts = require("mods.CRYSTAL_251.battle.move_scripts")
@@ -27,13 +31,6 @@ local PHYSICAL_TYPES = {
   ROCK=true, BUG=true, GHOST=true, STEEL=true,
 }
 
-local STAGE_RATIOS = {
-  [-6] = { 2, 8 }, [-5] = { 2, 7 }, [-4] = { 2, 6 }, [-3] = { 2, 5 },
-  [-2] = { 2, 4 }, [-1] = { 2, 3 }, [0] = { 2, 2 }, [1] = { 3, 2 },
-  [2] = { 4, 2 }, [3] = { 5, 2 }, [4] = { 6, 2 }, [5] = { 7, 2 },
-  [6] = { 8, 2 },
-}
-
 -- data/battle/critical_hit_chances.asm: 1/15, 1/8, 1/4, 1/3, 1/2.
 -- High-critical moves add two stages in Crystal; Focus Energy adds one.
 local CRIT_THRESHOLDS = { 17, 32, 64, 85, 128 }
@@ -52,21 +49,31 @@ local function calcStat(base, dv, statExp, level)
 end
 
 function CrystalDamage.calculateStats(mon, base)
-  mon = mon or {}
-  base = base or {}
-  local dvs = mon.dvs or {}
-  local exp = mon.statExp or {}
-  local level = mon.level or 1
-  local specialDV = dvs.special or 0
-  local specialExp = exp.special or 0
+  -- Backport of Gen2 Mon.stats. Gen I stores one Special DV/Exp, so both
+  -- split special stats intentionally consume that shared value.
+  mon, base = mon or {}, base or {}
+  local dvs, exp, level = mon.dvs or {}, mon.statExp or {}, mon.level or 1
+  local special = dvs.special or dvs.specialAttack or dvs.specialDefense or 0
+  local function stat(baseValue, dv, expValue)
+    local effort = math.floor(math.sqrt(expValue or 0) / 4)
+    return math.floor(((baseValue or 1) * 2 + (dv or 0) * 2 + effort)
+      * level / 100) + 5
+  end
+  local hpDv = (dvs.attack or 0) % 2 * 8
+    + (dvs.defense or 0) % 2 * 4
+    + (dvs.speed or 0) % 2 * 2
+    + special % 2
   return {
-    attack = calcStat(base.attack, dvs.attack, exp.attack, level),
-    defense = calcStat(base.defense, dvs.defense, exp.defense, level),
-    speed = calcStat(base.speed, dvs.speed, exp.speed, level),
-    specialAttack = calcStat(base.specialAttack or base.special,
-      specialDV, exp.specialAttack or specialExp, level),
-    specialDefense = calcStat(base.specialDefense or base.special,
-      specialDV, exp.specialDefense or specialExp, level),
+    hp = math.floor(((base.hp or 1) * 2 + hpDv * 2
+      + math.floor(math.sqrt(exp.hp or 0) / 4)) * level / 100)
+      + level + 10,
+    attack = stat(base.attack, dvs.attack, exp.attack),
+    defense = stat(base.defense, dvs.defense, exp.defense),
+    speed = stat(base.speed, dvs.speed, exp.speed),
+    specialAttack = stat(base.specialAttack or base.special, special,
+      exp.special or exp.specialAttack),
+    specialDefense = stat(base.specialDefense or base.special, special,
+      exp.special or exp.specialDefense),
   }
 end
 
@@ -155,8 +162,7 @@ local function stageFor(battler, stat)
 end
 
 local function applyStage(value, stage)
-  local ratio = STAGE_RATIOS[clamp(stage or 0, -6, 6)]
-  return clamp(math.floor(value * ratio[1] / ratio[2]), 1, 999)
+  return Gen2Damage.applyStage(value, clamp(stage or 0, -6, 6))
 end
 
 local function categoryOf(move)
@@ -164,10 +170,17 @@ local function categoryOf(move)
 end
 
 local function critRoll(user, move, rng)
-  local stage = (user.focusEnergy and 1 or 0) + (move.highCrit and 2 or 0)
-    + CrystalItems.criticalStage(user, move)
-  stage = clamp(stage, 0, 4)
-  return rng(0, 255) < CRIT_THRESHOLDS[stage + 1]
+  local stage = Gen2Damage.criticalLevel({
+    focusEnergy = user.focusEnergy,
+    highCritMove = move.highCrit,
+    speciesItemBonus = CrystalItems.criticalStage(user, move) >= 2,
+  })
+  return Gen2Damage.rollCritical(stage, function(chance)
+    -- BattleRandom is byte-based in the Gen 1 shell; preserve that stream
+    -- while applying the Gen 2 1-in-N ladder.
+    local byte = rng(0, 255, 1)
+    return byte < math.floor(256 / chance) and 0 or 1
+  end)
 end
 
 CrystalDamage.rollCritical = critRoll
@@ -233,7 +246,11 @@ function CrystalDamage.applyVariation(damage, rng, opts)
   damage = math.max(0, math.floor(damage or 0))
   if opts.typeless then return damage end
   rng = rng or function(_, high) return high end
-  if damage > 1 then damage = math.floor(damage * rng(217, 255) / 255) end
+  if damage > 1 then
+    local variation = Gen2Damage.MIN_VARIATION
+      + rng(0, Gen2Damage.MAX_VARIATION - Gen2Damage.MIN_VARIATION)
+    damage = math.floor(damage * variation / 100)
+  end
   return math.max(1, damage)
 end
 
@@ -308,13 +325,15 @@ function CrystalDamage.compute(ctx, config)
 
   handlers.damagecalc = function(run)
     local level = user.mon.level or 1
-    local damage = math.floor(2 * level / 5) + 2
-    damage = math.floor(damage * (move.power or 0) * run.attack
-      / math.max(1, run.defense))
-    damage = math.floor(damage / 50)
+    -- BattleCommand_DamageCalc is now the released Gen II implementation;
+    -- item/critical/weather/STAB/type ordering remains in the adapter stages
+    -- below because those stages also feed the Gen I battle presentation.
+    local damage = Gen2Damage.base(level, move.power or 0,
+      run.attack, run.defense)
     damage = CrystalItems.modifyBaseDamage(user, move, damage)
     if run.crit then damage = math.min(65535, damage * 2) end
-    run.damage = math.min(997, damage) + 2
+    run.damage = math.min(Gen2Damage.MAX_DAMAGE - Gen2Damage.MIN_DAMAGE,
+      damage) + Gen2Damage.MIN_DAMAGE
   end
 
   handlers.stab = function(run)

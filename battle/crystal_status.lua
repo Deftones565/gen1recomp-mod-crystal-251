@@ -83,9 +83,9 @@ local function rawEffect(code)
   return ("CRYSTAL_EFFECT_%02X"):format(code)
 end
 
--- Old Kanto moves are registered with Generation I effect aliases.  Route
--- only status/volatile families to the Crystal records; ordinary damage and
--- unrelated old effects remain owned by the base registry.
+-- The move table is imported from Crystal for all 251 moves.  Route status and
+-- volatile families to the Crystal records so Kanto moves cannot silently
+-- fall back to Generation I status semantics.
 function CrystalStatus.patchMoves(mod, crystalMoves)
   local patched = 0
   for id, row in pairs(crystalMoves or {}) do
@@ -260,10 +260,9 @@ end
 -- Replacement for Status.residual.  Crystal uses 1/8 for ordinary poison,
 -- burn and Leech Seed; Toxic alone advances in 1/16 steps.  Partial trapping
 -- is residual damage and does not stop the target from acting.
-function CrystalStatus.actionResidual(battler, opponent, battle)
+function CrystalStatus.statusResidual(battler, battle)
   local out = {}
   local mon = battler.mon
-  battler.skipMove = nil
   if mon.hp <= 0 then return out end
 
   if mon.status == "PSN" then
@@ -281,7 +280,14 @@ function CrystalStatus.actionResidual(battler, opponent, battle)
     append(out, name(battler) .. "\nis hurt by its burn!")
   end
 
-  if battler.leechSeeded and mon.hp > 0 and opponent and opponent.mon
+  return out
+end
+
+function CrystalStatus.seedCurseResidual(battler, opponent, battle)
+  local out = {}
+  local mon = battler.mon
+  if mon.hp <= 0 then return out end
+  if battler.leechSeeded and opponent and opponent.mon
       and opponent.mon.hp > 0 then
     local damage = directDamage(battler, math.floor(mon.stats.hp / 8))
     opponent.mon.hp = math.min(opponent.mon.stats.hp, opponent.mon.hp + damage)
@@ -296,6 +302,15 @@ function CrystalStatus.actionResidual(battler, opponent, battle)
   if battler.cursed and mon.hp > 0 then
     directDamage(battler, math.floor(mon.stats.hp / 4))
     append(out, name(battler) .. "\nis afflicted by\nthe CURSE!")
+  end
+  return out
+end
+
+function CrystalStatus.actionResidual(battler, opponent, battle)
+  battler.skipMove = nil
+  local out = CrystalStatus.statusResidual(battler, battle)
+  for _, message in ipairs(CrystalStatus.seedCurseResidual(battler, opponent, battle)) do
+    out[#out + 1] = message
   end
   return out
 end

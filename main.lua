@@ -204,13 +204,10 @@ local function installItems(mod)
         tossable=false, needsTarget=true, machine={ kind="HM", move=move, number=number } })
     end
   end
-  -- Gen1Recomp's machine item ids are named after the Gen I move they taught
-  -- (TM_MEGA_PUNCH is the item displayed as TM01, for example). Crystal's
-  -- per-species tmhm bitfield is numbered against Crystal's own machine list,
-  -- so leaving the item records untouched makes TM01 ask for MEGA_PUNCH while
-  -- the Pokemon record correctly advertises DYNAMICPUNCH. Remap by machine
-  -- number while preserving every existing item id/story reward/save entry.
-  require("mods.CRYSTAL_251.lib.crystal_machines").patchItems(mod)
+  -- Keep the Kanto map's original Gen 1 TM placements and contents. The
+  -- imported Crystal TM/HM bitfields remain independent compatibility data;
+  -- they must not rewrite what a Gen 1 item ball or story reward teaches.
+  require("mods.CRYSTAL_251.lib.crystal_machines").restoreGen1Items(mod)
   mod.content.text_pointers:patch("CeladonMart4F", {
     TEXT_CELADONMART4F_CLERK={
       label="CeladonMart4FClerkText",
@@ -301,10 +298,43 @@ local function registerContent(mod, cache)
     describe=function(evo) return "Level " .. tostring(evo.level or 20) end,
     })
   end
+  local Happiness = require("mods.CRYSTAL_251.core.gen2.Happiness")
+  local Clock = require("mods.CRYSTAL_251.core.gen2.Clock")
+  local VisualTime = require("mods.CRYSTAL_251.visual_time")
+  VisualTime.bindOptionSource(function() return mod.options:get("time_test") end)
+  VisualTime.install()
+  local function happinessCheck(game, mon, evo, trigger, requiredTime)
+    if not (trigger and trigger.kind == "levelup") then return false end
+    if (mon.happiness or Happiness.BASE) < Happiness.TO_EVOLVE then return false end
+    if mon.heldItem == "EVERSTONE" then return false end
+    local tod = trigger.timeOfDay or trigger.tod
+    if not tod and game and game.world and game.world.timeOfDay then
+      local ok, value = pcall(game.world.timeOfDay, game.world)
+      if ok then tod = value end
+    end
+    local night = tod == "NITE" or tod == "NITE_F" or tod == "NIGHT"
+    if requiredTime == "NITE" and not night then return false end
+    if requiredTime == "MORNDAY" and night then return false end
+    return true
+  end
+  for _, time in ipairs({ "ANYTIME", "MORNDAY", "NITE" }) do
+    local method = "EVOLVE_HAPPINESS_" .. time
+    mod.content.evolution_methods:register(method, {
+      check=function(game, mon, evo, trigger)
+        return happinessCheck(game, mon, evo, trigger, time)
+      end,
+      describe=function() return "Friendship" end,
+    })
+  end
+  mod.hooks:wrap("world.tod", function(next, tod, ctx)
+    local Game = require("src.core.Game")
+    local save = Game and Game.save
+    if not save then return next(tod, ctx) end
+    return Clock.forSave(save)
+  end, 120)
 
   local existingMoveByIndex = {}
   for id, def in mod.content.moves:each() do if def.index then existingMoveByIndex[def.index]=id end end
-  local moveIdByIndex = {}
   local crystalMoves = {}
   for _, cached in ipairs(cache.moves) do
     local existingId = existingMoveByIndex[cached.index]
@@ -313,20 +343,17 @@ local function registerContent(mod, cache)
     crystalRow.id = crystalId
     crystalRow.effect = GEN2_EFFECT_OVERRIDES[crystalId] or crystalRow.effect
     crystalMoves[crystalId] = crystalRow
-    if cached.index < 166 then
-      -- Keep the registered move definition native by default. The complete
-      -- Crystal row remains mod-owned for damage routing; a small set of
-      -- split-stat/screen moves is patched immediately after this loop.
-      moveIdByIndex[cached.index] = assert(existingId,
-        ("missing native Generation I move at index %d"):format(cached.index))
+    -- Crystal 251 is a Gen II ruleset on a Gen I runtime.  Every move,
+    -- including ids 1..165, must therefore use the imported Crystal row.
+    -- Leaving Kanto moves on the native table creates a silent hybrid battle:
+    -- the damage hook sees Crystal data while status dispatch, categories,
+    -- effect chances, and move metadata still come from Generation I.
+    local row = copy(crystalRow)
+    row.id = crystalId
+    if mod.content.moves:get(crystalId) then
+      mod.content.moves:override(crystalId, row)
     else
-      local row = copy(cached)
-      local id = existingId or row.id
-      moveIdByIndex[row.index] = id
-      row.id = id
-      row.effect = GEN2_EFFECT_OVERRIDES[id] or row.effect
-      if mod.content.moves:get(id) then mod.content.moves:override(id, row)
-      else mod.content.moves:register(id, row) end
+      mod.content.moves:register(crystalId, row)
     end
   end
 
@@ -343,6 +370,15 @@ local function registerContent(mod, cache)
   local CrystalGender = require("mods.CRYSTAL_251.battle.crystal_gender")
   local CrystalSummary = require("mods.CRYSTAL_251.battle.crystal_summary")
   local CrystalEvolutions = require("mods.CRYSTAL_251.lib.evolutions")
+  mod.events:on("world.stepped", function()
+    local Game = require("src.core.Game")
+    if Game and Game.save then
+      CrystalProgression.Happiness.step(Game.save)
+      for _, mon in ipairs(Game.save.party or {}) do
+        CrystalProgression.ensureHappiness(mon)
+      end
+    end
+  end)
   local existingSpeciesByDex = {}
   local crystalHeldItems = {}
   local crystalBaseStats = {}
@@ -432,6 +468,18 @@ local function registerContent(mod, cache)
   CrystalSwitching.patchMoves(mod, crystalMoves)
 
   local MoveScripts = require("mods.CRYSTAL_251.battle.move_scripts")
+  -- Every imported effect is addressed by its Crystal byte.  This removes the
+  -- last Gen I alias fallback from the active Gen I battle shell.
+  for id, row in pairs(crystalMoves) do
+    local byte = MoveScripts.effectByte(row)
+    if byte then
+      local effect = ("CRYSTAL_EFFECT_%02X"):format(byte)
+      row.effect = effect
+      if mod.content.moves:get(id) then
+        mod.content.moves:patch(id, { effect=effect })
+      end
+    end
+  end
   local CommandInterpreter = require("mods.CRYSTAL_251.battle.command_interpreter")
   local crystalMoveScripts = MoveScripts.build(crystalMoves)
   local crystalInterpreter = CommandInterpreter.new()
@@ -520,6 +568,9 @@ return function(mod)
     { key="crystal_shinies", label="CRYSTAL SHINIES", type="toggle", default=true },
     { key="time_spawns", label="TIME SPAWNS", type="choice", default="auto",
       choices={ { "AUTO", "auto" }, { "OFF", "off" } } },
+    { key="time_test", label="TEST TIME", type="choice", default="live",
+      choices={ { "LIVE CLOCK", "live" }, { "MORNING", "morning" },
+                { "DAY", "day" }, { "NIGHT", "night" } } },
     { key="legendary_ko_removes", label="KO REMOVES LEGEND", type="toggle", default=false },
     { key="force_legendary", label="TEST LEGENDARY", type="toggle", default=false },
   })
@@ -564,6 +615,23 @@ return function(mod)
         end
       end,
     }
+    return out
+  end, 100)
+
+  -- Crystal's START menu is the pause screen. Show the live RTC there.
+  mod.hooks:wrap("ui.start_menu.items", function(next, game, rows)
+    local out = next(game, rows)
+    -- StartMenu.new runs before the newly pushed menu is present in the
+    -- stack, so inLoadedPlaythrough() is intentionally not used here.
+    if type(out) ~= "table" or not (game and game.overworld) then return out end
+    local function timeLabel()
+      -- The pause box is only eleven tiles wide; keep the exact clock
+      -- readable there and expose the visual period in TEST TIME.
+      return ("TIME %02d:%02d"):format(Clock.hour(game.save),
+        Clock.minute(game.save))
+    end
+    out[#out + 1] = { label = timeLabel(), keepOpen = true,
+      onSelect = function() end }
     return out
   end, 100)
   if not cache then
