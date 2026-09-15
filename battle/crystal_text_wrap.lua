@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Crystal battle-text soft wrapping.
 --
 -- Gen1Recomp's normal TextBox already soft-wraps text, but the battle queue
@@ -96,7 +97,7 @@ function Wrap.wrap(text, columns)
 end
 
 function Wrap.installRuntime()
-  local BattleState = require("src.battle.BattleState")
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   if BattleState._crystal251TextWrapBridge then return false end
   local originalStartMessage = BattleState.startMessage
   if type(originalStartMessage) ~= "function" then return false end
@@ -128,4 +129,4 @@ Wrap._test = {
   wrapLine = wrapLine,
 }
 
-return Wrap
+return RuntimePatches.installers(Wrap)

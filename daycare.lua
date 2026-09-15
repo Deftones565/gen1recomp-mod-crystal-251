@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Pokemon Crystal's two-slot Day Care and breeding system, adapted to the
 -- Kanto Day Care building without collapsing Crystal's separate attendants.
 -- The existing gentleman owns slot 1, an appended lady owns slot 2, and an
@@ -584,6 +585,10 @@ function Daycare.stepState(save, data, rng)
     end
   end
 
+  -- This is the single owner of the Kanto Crystal step phase. A hatch above
+  -- returns before friendship, boarder EXP, poison and encounters.
+  require("mods.CRYSTAL_251.core.gen2.Happiness").step(save)
+
   for i = 1, 2 do addDaycareExp(data, dc.slots[i]) end
 
   if not dc.eggReady and dc.stepsToEgg ~= nil
@@ -885,7 +890,7 @@ local function installDaycareNPCs(mod)
 end
 
 local function installEggVisuals()
-  local Pokemon = require("src.pokemon.Pokemon")
+  local Pokemon = RuntimePatches.watch(require("src.pokemon.Pokemon"))
   if not Pokemon._crystal251EggHeal then
     Pokemon._crystal251EggHeal = true
     local originalHeal = Pokemon.heal
@@ -900,7 +905,7 @@ local function installEggVisuals()
     end
   end
 
-  local PartyMenu = require("src.ui.PartyMenu")
+  local PartyMenu = RuntimePatches.watch(require("src.ui.PartyMenu"))
   if not PartyMenu._crystal251EggVisuals then
     PartyMenu._crystal251EggVisuals = true
     local originalPartyDraw = PartyMenu.draw
@@ -926,7 +931,7 @@ local function installEggVisuals()
     end
   end
 
-  local SummaryMenu = require("src.ui.SummaryMenu")
+  local SummaryMenu = RuntimePatches.watch(require("src.ui.SummaryMenu"))
   if not SummaryMenu._crystal251EggVisuals then
     SummaryMenu._crystal251EggVisuals = true
     local originalNew = SummaryMenu.new
@@ -1013,7 +1018,7 @@ function Daycare.install(mod, assets, iconAssets)
     return next(path, ctx)
   end, 130)
 
-  mod.events:on("game.ready", function(ev)
+  mod.events:on("game.ready", RuntimePatches.callback(function(ev)
     -- game.ready does not promise a payload. Resolve the live singleton here,
     -- after Game has finished wiring its save, data, stack, and overworld.
     gameRef = (ev and ev.game) or require("src.core.Game")
@@ -1023,7 +1028,7 @@ function Daycare.install(mod, assets, iconAssets)
       Daycare.syncNPCs(gameRef, overworld and overworld.map and overworld or nil)
     end
 
-    local OverworldState = require("src.world.OverworldController")
+    local OverworldState = RuntimePatches.watch(require("src.world.OverworldController"))
     local bridge = OverworldState._crystal251DaycareStepBridge
     if not bridge then
       bridge = { original=OverworldState.onStepComplete }
@@ -1048,7 +1053,7 @@ function Daycare.install(mod, assets, iconAssets)
       -- and the rest of the completed-step pipeline. Preserve that ordering.
       return Daycare.step(gameRef, overworld)
     end
-  end)
+  end))
   return Daycare
 end
 
@@ -1086,4 +1091,4 @@ function Daycare.resetForTests()
   gameRef, eggAssets, daycareIconAssets = nil, nil, nil
 end
 
-return Daycare
+return RuntimePatches.installers(Daycare)

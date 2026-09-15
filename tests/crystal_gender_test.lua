@@ -16,7 +16,7 @@ package.loaded["src.render.Font"] = {
   draw=function(text,x,y)
     draws[#draws + 1] = { text=text, x=x, y=y, canvas=canvas }
     local n = 0
-    for _ in tostring(text):gmatch("[\0-\127\194-\244][\128-\191]*") do n = n + 1 end
+    for _ in tostring(text):gmatch("[%z\1-\127\194-\244][\128-\191]*") do n = n + 1 end
     return n * 8
   end,
 }

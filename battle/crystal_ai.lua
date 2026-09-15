@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Pokemon Crystal enemy AI for CRYSTAL_251.
 --
 -- This is a mod-local port of pret/pokecrystal's AIChooseMove scoring layers,
@@ -808,8 +809,8 @@ function CrystalAI.recordMove(battle,user,moveDefn,opts)
 end
 
 function CrystalAI.installRuntime()
-  local TrainerAI=require("src.battle.TrainerAI")
-  local BattleState=require("src.battle.BattleState")
+  local TrainerAI=RuntimePatches.watch(require("src.battle.TrainerAI"))
+  local BattleState=RuntimePatches.watch(require("src.battle.BattleState"))
   if not BattleState._crystal251AIMoveTrackingBridge then
     BattleState._crystal251AIMoveTrackingBridge=true
     local originalPerformMove=BattleState.performMove
@@ -855,4 +856,4 @@ function CrystalAI.installRuntime()
   end
 end
 
-return CrystalAI
+return RuntimePatches.installers(CrystalAI)

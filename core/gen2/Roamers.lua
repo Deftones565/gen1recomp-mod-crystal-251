@@ -3,29 +3,36 @@
 -- overworld/encounter behavior that is being backported.
 local Roamers = {}
 
+-- Kanto routes connected through their intervening towns/gates. Keep every
+-- node encounter-capable; the movement algorithm remains the Crystal one.
 Roamers.SPECIES = {
-  {species="RAIKOU", level=40, map="ROUTE_42"},
-  {species="ENTEI", level=40, map="ROUTE_37"},
-  {species="SUICUNE", level=40, map="ROUTE_38"},
+  {species="RAIKOU", level=40, map="ROUTE_10"},
+  {species="ENTEI", level=40, map="ROUTE_7"},
+  {species="SUICUNE", level=40, map="ROUTE_14"},
 }
-
 Roamers.MAPS = {
-  {map="ROUTE_29",to={"ROUTE_30","ROUTE_46"}},
-  {map="ROUTE_30",to={"ROUTE_29","ROUTE_31"}},
-  {map="ROUTE_31",to={"ROUTE_30","ROUTE_32","ROUTE_36"}},
-  {map="ROUTE_32",to={"ROUTE_36","ROUTE_31","ROUTE_33"}},
-  {map="ROUTE_33",to={"ROUTE_32","ROUTE_34"}},
-  {map="ROUTE_34",to={"ROUTE_33","ROUTE_35"}},
-  {map="ROUTE_35",to={"ROUTE_34","ROUTE_36"}},
-  {map="ROUTE_36",to={"ROUTE_35","ROUTE_31","ROUTE_32","ROUTE_37"}},
-  {map="ROUTE_37",to={"ROUTE_36","ROUTE_38","ROUTE_42"}},
-  {map="ROUTE_38",to={"ROUTE_37","ROUTE_39","ROUTE_42"}},
-  {map="ROUTE_39",to={"ROUTE_38"}},
-  {map="ROUTE_42",to={"ROUTE_43","ROUTE_44","ROUTE_37","ROUTE_38"}},
-  {map="ROUTE_43",to={"ROUTE_42","ROUTE_44"}},
-  {map="ROUTE_44",to={"ROUTE_42","ROUTE_43","ROUTE_45"}},
-  {map="ROUTE_45",to={"ROUTE_44","ROUTE_46"}},
-  {map="ROUTE_46",to={"ROUTE_45","ROUTE_29"}},
+  {map="ROUTE_1",to={"ROUTE_2","ROUTE_22"}},
+  {map="ROUTE_2",to={"ROUTE_1","ROUTE_3","ROUTE_22"}},
+  {map="ROUTE_3",to={"ROUTE_2","ROUTE_4"}},
+  {map="ROUTE_4",to={"ROUTE_3","ROUTE_5","ROUTE_9","ROUTE_24"}},
+  {map="ROUTE_5",to={"ROUTE_4","ROUTE_6","ROUTE_7","ROUTE_8"}},
+  {map="ROUTE_6",to={"ROUTE_5","ROUTE_7","ROUTE_8","ROUTE_11"}},
+  {map="ROUTE_7",to={"ROUTE_5","ROUTE_6","ROUTE_8","ROUTE_16"}},
+  {map="ROUTE_8",to={"ROUTE_5","ROUTE_7","ROUTE_10","ROUTE_12"}},
+  {map="ROUTE_9",to={"ROUTE_4","ROUTE_10","ROUTE_24"}},
+  {map="ROUTE_10",to={"ROUTE_9","ROUTE_8","ROUTE_12"}},
+  {map="ROUTE_11",to={"ROUTE_6","ROUTE_12"}},
+  {map="ROUTE_12",to={"ROUTE_8","ROUTE_10","ROUTE_11","ROUTE_13"}},
+  {map="ROUTE_13",to={"ROUTE_12","ROUTE_14"}},
+  {map="ROUTE_14",to={"ROUTE_13","ROUTE_15"}},
+  {map="ROUTE_15",to={"ROUTE_14","ROUTE_18"}},
+  {map="ROUTE_16",to={"ROUTE_7","ROUTE_17"}},
+  {map="ROUTE_17",to={"ROUTE_16","ROUTE_18"}},
+  {map="ROUTE_18",to={"ROUTE_17","ROUTE_15"}},
+  {map="ROUTE_22",to={"ROUTE_1","ROUTE_2","ROUTE_23"}},
+  {map="ROUTE_23",to={"ROUTE_22"}},
+  {map="ROUTE_24",to={"ROUTE_4","ROUTE_9","ROUTE_25"}},
+  {map="ROUTE_25",to={"ROUTE_24"}},
 }
 
 local function r(random, n)
@@ -40,14 +47,25 @@ local function mapEntry(mapId)
 end
 
 function Roamers.init(state)
-  if state.roamers then return state.roamers end
-  state.roamers = {}
-  for _, row in ipairs(Roamers.SPECIES) do
-    state.roamers[#state.roamers+1] = {
-      species=row.species, level=row.level, map=row.map, hp=0,
-    }
+  if not state.roamers then
+    state.roamers = {}
+    for _, row in ipairs(Roamers.SPECIES) do
+      state.roamers[#state.roamers+1] = {
+        species=row.species, level=row.level, map=row.map, hp=0,
+      }
+    end
   end
-  state.roamerMaps = {}
+  -- Move old Johto locations without reviving caught/defeated slots or
+  -- replacing persistent DVs and damage. This also repairs partial saves.
+  for _, slot in ipairs(state.roamers) do
+    if slot.species and slot.map and not mapEntry(slot.map) then
+      for _, row in ipairs(Roamers.SPECIES) do
+        if slot.species == row.species then slot.map = row.map; break end
+      end
+    end
+  end
+  state.roamerMaps = state.roamerMaps or {}
+  state.roamerMapVersion = 2
   return state.roamers
 end
 

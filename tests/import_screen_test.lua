@@ -10,24 +10,11 @@ love.filesystem.getInfo = function(path, kind)
 end
 local run = T.sdk.loadMod("mods/CRYSTAL_251", { data=Data })
 love.filesystem.getInfo = oldInfo
-T.eq(#run.errors, 0, "unimported mod loads cleanly")
-
-local pushed
-local game = {
-  data=run.data,
-  input={ wasPressed=function() return false end },
-  stack={
-    push=function(_, screen) pushed=screen end,
-    pop=function() end,
-  },
-}
+T.eq(#run.errors, 1, "missing required ROM is reported by the launcher")
+T.check(tostring(run.errors[1].error or run.errors[1].message or run.errors[1]):find("required import",1,true),
+  "missing ROM reports the required import")
 local items = run.loader.hooks:call("ui.title_menu.items",
-  function(_, rows) return rows end, game, { { label="EXIT GAME" } })
-T.eq(items[1].label, "IMPORT CRYSTAL", "missing cache adds the import title entry")
-local ok, err = pcall(items[1].onSelect)
-T.check(ok, "import title entry resolves its registered screen: " .. tostring(err))
-T.check(type(pushed)=="table", "registered import screen is pushed")
-T.eq(pushed and pushed.status, "CHOOSE CRYSTAL ROM", "import screen opens at the chooser")
-
+  function(_, rows) return rows end, {}, { {label="EXIT GAME"} })
+T.eq(items[1].label,"EXIT GAME","missing ROM does not add an unusable title action")
 run.release()
-T.finish("crystal 251 import screen")
+T.finish("Crystal required import gating")

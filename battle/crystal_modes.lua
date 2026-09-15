@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Pokemon Crystal battle-mode rules for CRYSTAL_251.
 --
 -- Crystal uses the same command engine for wild, trainer, Battle Tower and
@@ -176,7 +177,7 @@ local VOLATILE_KEYS = {
   "disabledMove", "disabledSlot", "disabledTurns", "encoreMove",
   "encoreSetTurn", "encoreTurns", "endure", "flinched", "focusEnergy",
   "forcedMove", "forcedMoveTurns", "foresight", "furyCutterCount",
-  "hazeStatReset", "infatuatedWith", "invulnerable", "lastCounterMove",
+  "hazeStatReset", "infatuatedWith", "invulnerable", "invulnerableMove", "lastCounterMove",
   "lastMove", "lastMoveCategory", "lastMovePower", "leechSeeded",
   "leechSeededBy", "lightScreen", "lightScreenTurns", "lockOnTurns",
   "lockedTarget", "mist", "mustRecharge", "nightmare", "perishTurns",
@@ -535,7 +536,7 @@ function Modes.unpackLinkExtras(data, mon, packed, strict)
 end
 
 function Modes.installProtocolBridge()
-  local Protocol = require("src.link.Protocol")
+  local Protocol = RuntimePatches.watch(require("src.link.Protocol"))
   if Protocol._crystal251ModeBridge then return end
   Protocol._crystal251ModeBridge = true
   local originalPack = Protocol.packMon
@@ -564,12 +565,15 @@ function Modes.configureLinkBattle(battle, net, opts)
     battle._crystal251NetSendWrapped = true
     local originalSend = net.send
     battle._crystal251OriginalNetSend = originalSend
-    net.send = function(self, message, ...)
-      if message and message.type == "hash" then
-        Modes.attachCrystalHash(battle, message)
+    RuntimePatches.capture(function()
+      RuntimePatches.watch(net)
+      net.send = function(self, message, ...)
+        if message and message.type == "hash" then
+          Modes.attachCrystalHash(battle, message)
+        end
+        return originalSend(self, message, ...)
       end
-      return originalSend(self, message, ...)
-    end
+    end)()
   end
 
   -- In Crystal, RUN in the Colosseum is BATTLEACTION_FORFEIT.  The base link
@@ -628,7 +632,7 @@ end
 function Modes.installRuntime()
   Modes.installProtocolBridge()
 
-  local BattleState = require("src.battle.BattleState")
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   if not BattleState._crystal251ModeBridge then
     BattleState._crystal251ModeBridge = true
 
@@ -683,7 +687,7 @@ function Modes.installRuntime()
     end
   end
 
-  local LinkBattle = require("src.link.LinkBattle")
+  local LinkBattle = RuntimePatches.watch(require("src.link.LinkBattle"))
   if not LinkBattle._crystal251ModeBridge then
     LinkBattle._crystal251ModeBridge = true
     local originalNew = LinkBattle.new
@@ -703,4 +707,4 @@ function Modes.installRuntime()
   end
 end
 
-return Modes
+return RuntimePatches.installers(Modes)

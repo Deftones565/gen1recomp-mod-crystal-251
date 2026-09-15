@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Pokemon Crystal action legality, obedience, PP and trainer-item behavior.
 --
 -- The live engine is Generation-I-shaped, so this module keeps every change
@@ -399,8 +400,8 @@ function Actions.useTrainerItem(battle, item)
 end
 
 function Actions.installRuntime()
-  local BattleState = require("src.battle.BattleState")
-  local TrainerAI = require("src.battle.TrainerAI")
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
+  local TrainerAI = RuntimePatches.watch(require("src.battle.TrainerAI"))
   if BattleState._crystal251ActionsBridge then return end
   BattleState._crystal251ActionsBridge = true
 
@@ -469,6 +470,10 @@ function Actions.installRuntime()
       self, user, target, moveInst, isCalled)
     if consumed and moveInst.id == selectedId then moveInst.pp = crystalPP end
     if not ok then error(a, 0) end
+    -- The Kanto shell only stores a boolean; Crystal's damage and weather
+    -- commands also need to distinguish underground Dig from airborne Fly.
+    user.invulnerableMove = user.invulnerable and user.charging
+      and user.charging.id or nil
     return a, b, c
   end
 
@@ -501,4 +506,4 @@ function Actions.installRuntime()
   end
 end
 
-return Actions
+return RuntimePatches.installers(Actions)

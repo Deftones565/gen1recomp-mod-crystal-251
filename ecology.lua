@@ -81,7 +81,9 @@ function Ecology.install(mod, cache)
     end
   end
 
-  local currentTod, providerObserved = "DAY", false
+  -- Crystal always installs its own RTC provider, including when the first
+  -- observed period equals the engine default DAY.
+  local currentTod, providerObserved = "DAY", true
   mod.hooks:wrap("world.tod", function(next, tod, ctx)
     local out = next(tod, ctx)
     if type(out) == "string" and out ~= "" then

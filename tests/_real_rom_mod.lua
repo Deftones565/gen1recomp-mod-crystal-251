@@ -27,7 +27,12 @@ function Helper.load(T, raw)
   end
   function fs.write(path, body) return inner.write(path, body) end
   function fs.load(path) return inner.load(path) end
-  function fs.getInfo(path) return inner.getInfo(path) end
+  function fs.getInfo(path)
+    if path == "mods/CRYSTAL_251/baseroms/crystal.gbc" then
+      return {type="file",size=#raw}
+    end
+    return inner.getInfo(path)
+  end
   function fs.getDirectoryItems(path)
     if path == "mods" then return { "CRYSTAL_251" } end
     return inner.getDirectoryItems(path)

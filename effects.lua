@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 local Effects = {}
 Effects.CHANCE_EFFECTS = {}
 
@@ -6,7 +7,7 @@ Effects.CHANCE_EFFECTS = {}
 -- Crystal effect records that the Gen I battle shell dispatches.
 function Effects.install(mod)
   local MoveEffects = require("src.battle.MoveEffects")
-  local EffectRegistry = require("src.battle.EffectRegistry")
+  local EffectRegistry = RuntimePatches.watch(require("src.battle.EffectRegistry"))
   local TypeChart = require("src.battle.TypeChart")
   local CrystalDamage = require("mods.CRYSTAL_251.battle.crystal_damage")
   local Gen2Effects = require("mods.CRYSTAL_251.battle.gen2.Effects")
@@ -185,7 +186,14 @@ function Effects.install(mod)
   record(6, "secondary", statusSide("PAR"), { useEffectChance=true })
   record(28, "primary", CrystalSwitching.forceSwitch, { accuracyChecked=true })
   record(31, "secondary", CrystalStatus.flinch, { useEffectChance=true })
-  record(32, "primary", CrystalStatus.rest)
+  record(32, "primary", function(ctx)
+    if ctx.move.id == "REST" then return CrystalStatus.rest(ctx) end
+    local mon = ctx.user.mon
+    if mon.hp >= mon.stats.hp then return {"But, it failed!"} end
+    mon.hp = math.min(mon.stats.hp, mon.hp + math.max(1, math.floor(mon.stats.hp / 2)))
+    ctx.drain()
+    return {name(ctx,ctx.user) .. " regained health!"}
+  end)
   record(33, "primary", function(ctx)
     local messages = ctx.inflict(ctx.target, "PSN", {
       toxic=true, moveType=ctx.move.type, source=ctx.move.id,
@@ -655,13 +663,9 @@ function Effects.install(mod)
     return messages
   end)
 
-  -- The imported Crystal table is authoritative for all 157 effect bytes.
-  -- Register the remaining neutral bytes locally as Gen 2 records too, so
-  -- no move can fall through to the Gen 1 effect registry.  Bytes with a
-  -- command implementation above retain their real handler; an unimplemented
-  -- byte remains an ordinary hit (or an explicit failure for a status move)
-  -- until its command body is added, instead of silently acquiring Gen 1
-  -- semantics.
+  require("mods.CRYSTAL_251.battle.crystal_classic_effects").register(mod, record)
+
+  -- Only neutral/unused bytes and damage-hook-owned effects remain empty.
   for code = 0, 0x9c do
     if not registered[code] then
       record(code, "full", nil)
@@ -879,4 +883,4 @@ function Effects.install(mod)
 
 end
 
-return Effects
+return RuntimePatches.installers(Effects)

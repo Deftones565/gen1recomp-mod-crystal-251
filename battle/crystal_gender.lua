@@ -1,8 +1,7 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 local Gender = {}
 
 local ratios = {}
-local installed = false
-local compatibilityInstalled = false
 local gen3UiPresent = false
 local compatibilityMod = nil
 local presentationNameDepth = 0
@@ -193,8 +192,8 @@ function Gender.gen3PokemonUiActive(game)
 end
 
 function Gender.installCompatibility(mod)
-  if compatibilityInstalled then return false end
-  compatibilityInstalled = true
+  if Gender._compatibilityInstalled then return false end
+  Gender._compatibilityInstalled = true
   compatibilityMod = mod
   gen3UiPresent = mod and mod.find and mod.find("gen3_battle_ui") ~= nil or false
 
@@ -447,10 +446,10 @@ function Gender.drawSummary(menu)
 end
 
 function Gender.installRuntime()
-  if installed then return false end
-  installed = true
+  if Gender._installed then return false end
+  Gender._installed = true
 
-  local BattleState = require("src.battle.BattleState")
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   local originalDraw = BattleState.draw
   if type(originalDraw) == "function" then
     BattleState.draw = function(self, ...)
@@ -464,7 +463,7 @@ function Gender.installRuntime()
     end
   end
 
-  local SummaryMenu = require("src.ui.SummaryMenu")
+  local SummaryMenu = RuntimePatches.watch(require("src.ui.SummaryMenu"))
   local originalSummaryDraw = SummaryMenu.draw
   SummaryMenu.draw = function(self)
     local result = originalSummaryDraw(self)
@@ -482,12 +481,12 @@ end
 
 function Gender.resetForTests()
   ratios = {}
-  installed = false
-  compatibilityInstalled = false
+  Gender._installed = false
+  Gender._compatibilityInstalled = false
   compatibilityMod = nil
   gen3UiPresent = false
   trackingDepth = 0
   presentationNameDepth = 0
 end
 
-return Gender
+return RuntimePatches.installers(Gender)

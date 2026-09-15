@@ -181,6 +181,9 @@ end
 -- LevelUpHappinessMod: the caught location masked with CAUGHT_LOCATION_MASK
 -- against the current landmark -- engine/pokemon/level_up_happiness.asm:1-20.
 function Happiness.levelUpEvent(mon, landmark)
+  -- Kanto uses map ids instead of the native Gen II numeric landmarks.
+  if type(landmark)=="string" and type(mon)=="table" and mon.caughtData
+      and mon.caughtData.mapId==landmark then return "GAINLEVELATHOME" end
   local caught = type(mon) == "table" and tonumber(mon.caughtLocation) or nil
   landmark = tonumber(landmark)
   if not (caught and landmark) then return "GAINLEVEL" end
@@ -249,12 +252,11 @@ end
 -- `inc [hl]` sets z only on the wrap, so StepHappiness runs on the step that
 -- takes wStepCount from 255 back to 0 -- one call every 256 steps, and a
 -- party point every 512.  src/core/gen2/Breeding.lua owns that same counter
--- (`save.stepCount`, advanced by Breeding.step), so this must be called AFTER
--- Breeding.step on the same footfall or it will read the previous step's
--- value.
+-- The Kanto adapter advances save.daycare.stepCounter in Daycare.stepState.
+-- Call from there once, after the hatch check, rather than from world.stepped.
 function Happiness.step(save)
   if type(save) ~= "table" then return false end
-  if (save.stepCount or 0) ~= 0 then return false end
+  if not save.daycare or save.daycare.stepCounter ~= 0 then return false end
   return Happiness.stepCycle(save)
 end
 
@@ -264,7 +266,7 @@ end
 function Happiness.stepsToGain(save)
   if type(save) ~= "table" then return nil end
   local cycle = 256
-  local toWrap = (cycle - (save.stepCount or 0)) % cycle
+  local toWrap = (cycle - (save.daycare and save.daycare.stepCounter or 0)) % cycle
   if toWrap == 0 then toWrap = cycle end
   -- A toggle sitting at 1 means the NEXT wrap is the one that pays out.
   if (save.happinessStepCount or 0) == 1 then return toWrap end

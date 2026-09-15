@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Sandboxed Crystal import cache. Content and generated picture rasters live
 -- in playthrough-scoped mod.storage; no filesystem path is exposed to the mod.
 local Cache = {}
@@ -643,7 +644,7 @@ local function imageData(path)
 end
 
 function Cache.installAssetBridge()
-  local Assets = require("src.render.Assets")
+  local Assets = RuntimePatches.watch(require("src.render.Assets"))
   if Assets._crystal251StorageBridge then return end
   Assets._crystal251StorageBridge = true
   local oldImage, oldImageData, oldExists = Assets.image, Assets.imageData, Assets.exists
@@ -664,4 +665,4 @@ function Cache.installAssetBridge()
   end
 end
 
-return Cache
+return RuntimePatches.installers(Cache)

@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Command-specific Pokemon Crystal damage families.
 --
 -- These moves do not share the ordinary critical/stats/STAB/random pipeline.
@@ -558,11 +559,10 @@ function SpecialDamage.continueBide(battle, user, target)
   if target.mon.hp <= 0 then battle:onFaint(target) end
 end
 
-local runtimeInstalled = false
 function SpecialDamage.installRuntime()
-  if runtimeInstalled then return end
-  runtimeInstalled = true
-  local BattleState = require("src.battle.BattleState")
+  if SpecialDamage._runtimeInstalled then return end
+  SpecialDamage._runtimeInstalled = true
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   local original = BattleState.continueBide
   BattleState.continueBide = function(battle, user, target)
     if user and user.crystalBide then
@@ -606,4 +606,4 @@ function SpecialDamage.record()
   return { perform=SpecialDamage.perform }
 end
 
-return SpecialDamage
+return RuntimePatches.installers(SpecialDamage)

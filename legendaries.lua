@@ -14,8 +14,8 @@ local function stats(def,level,d) local out={} for _,k in ipairs({"hp","attack",
 function Legendaries.install(mod)
  local game,pending,active=nil,nil,nil
  local function state() local s=mod.save:get("crystalLegendaries") if type(s)~="table" then s={version=2} end Roamers.init(s) mod.save:set("crystalLegendaries",s) return s end
- local function open(p) local save=game and game.save if not save then return false end if p.badges and badgeCount(save)<p.badges then return false end return not p.secretKey or (save.inventory and save.inventory.SECRET_KEY) end
- local function rng(ctx) return function(n) return ctx and ctx.rng and ctx.rng(1,n) or math.random(n) end end
+ local function open(p) local save=game and game.save if not save then return false end if p.badges and badgeCount(save)<p.badges then return false end if p.flag and not (save.flags and save.flags[p.flag]) then return false end return not p.secretKey or (save.inventory and save.inventory.SECRET_KEY) end
+ local function rng(ctx) return function(a,b) local low,high = b and a or 1,b or a; return ctx and ctx.rng and ctx.rng(low,high) or math.random(low,high) end end
  local function apply(b,p,slot) local mon,def=b.enemy.mon,b.enemy.def mon.level,mon.dvs=p.level,slot.dvs or dvs() slot.dvs=mon.dvs mon.statExp={hp=0,attack=0,defense=0,speed=0,special=0} mon.stats=stats(def,p.level,mon.dvs) if (slot.hp or 0)==0 then slot.hp=math.min(255,mon.stats.hp) end mon.hp=math.max(1,math.min(slot.hp,mon.stats.hp)) b.enemy.curStats,b.enemy.shownHP=mon.stats,mon.hp b.enemy.shownStatus=nil mon.crystal251Legendary=p.id active={battle=b,profile=p,index=pending.index,slot=slot,mapId=pending.mapId,fainted=false} end
  mod.events:on("game.ready",function(ev) game=ev and ev.game or game state() end)
  mod.events:on("map.entered",function(ev) local s=state() Roamers.update(s,ev and ev.mapId,rng(ev)) mod.save:set("crystalLegendaries",s) end)
@@ -46,7 +46,7 @@ function Legendaries.install(mod)
  mod.events:on("pokemon.caught",function(ev) if active and active.battle==ev.battle then local s=state() if active.profile.roaming then Roamers.endBattle(s,active.index,"caught",0,active.mapId,rng(ev)) else active.slot.status="caught" end mod.save:set("crystalLegendaries",s) ev.mon.crystal251Legendary=active.profile.id end end)
  mod.events:on("battle.ended",function(ev)
   if not active or active.battle~=ev.battle then
-   if ev.kind=="wild" then local s=state(); Roamers.afterWildBattle(s,ev.mapId or (game and game.mapId),rng(ev)); mod.save:set("crystalLegendaries",s) end
+   if ev.battle and ((ev.battle.battleKind and ev.battle:battleKind()=="wild") or ev.battle.kind=="wild") then local s=state(); Roamers.afterWildBattle(s,ev.mapId or (game and game.overworld and game.overworld.map and game.overworld.map.id),rng(ev)); mod.save:set("crystalLegendaries",s) end
    return
   end
   local s=state(); local m=ev.battle.enemy and ev.battle.enemy.mon

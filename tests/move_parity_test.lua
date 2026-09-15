@@ -598,7 +598,7 @@ Probes.magnitude = function(spec)
     })
   end
   T.eq(powerAt(1), 10, "Magnitude 4 has power 10")
-  T.eq(powerAt(100), 150, "Magnitude 10 has power 150")
+  T.eq(powerAt(255), 150, "Magnitude 10 has power 150")
 end
 
 Probes.baton_pass = function(spec)

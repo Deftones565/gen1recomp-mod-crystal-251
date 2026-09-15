@@ -48,6 +48,7 @@ function fs.write() return true end
 function fs.createDirectory() return true end
 function fs.load(path) return inner.load(path) end
 function fs.getInfo(path)
+  if path=="mods/CRYSTAL_251/baseroms/crystal.gbc" then return {type="file",size=#raw} end
   if path:sub(1,#sourcePrefix)==sourcePrefix then return nil end
   return inner.getInfo(path)
 end
@@ -71,19 +72,19 @@ local machineMoves=require("mods.CRYSTAL_251.catalog").tmItems
 for _,def in pairs(run.data.items) do
   local machine=def.machine
   if machine and machine.kind=="TM" and machine.number>=1 and machine.number<=50 then
-    T.eq(machine.move,machineMoves[machine.number],
-      ("TM%02d teaches its Crystal move"):format(machine.number))
+    T.eq(machine.move,require("mods.CRYSTAL_251.lib.crystal_machines").GEN1_TM_MOVES[machine.number],
+      ("TM%02d teaches its mapped move"):format(machine.number))
   elseif machine and machine.kind=="HM" and machine.number>=1 and machine.number<=7 then
     T.eq(machine.move,machineMoves[50+machine.number],
-      ("HM%02d teaches its Crystal move"):format(machine.number))
+      ("HM%02d teaches its mapped move"):format(machine.number))
   end
 end
-T.eq(run.data.items.TM_MEGA_PUNCH.machine.move,"DYNAMICPUNCH",
-  "the existing Gen I TM01 item now teaches Crystal TM01 DynamicPunch")
-T.eq(run.data.items.TM_RAZOR_WIND.machine.move,"HEADBUTT",
-  "the existing Gen I TM02 item now teaches Crystal TM02 Headbutt")
-T.eq(run.data.items.TM_SWORDS_DANCE.machine.move,"CURSE",
-  "the existing Gen I TM03 item now teaches Crystal TM03 Curse")
+T.eq(run.data.items.TM_MEGA_PUNCH.machine.move,"MEGA_PUNCH",
+  "the existing Gen I TM01 item retains Mega Punch")
+T.eq(run.data.items.TM_RAZOR_WIND.machine.move,"RAZOR_WIND",
+  "the existing Gen I TM02 item retains Razor Wind")
+T.eq(run.data.items.TM_SWORDS_DANCE.machine.move,"SWORDS_DANCE",
+  "the existing Gen I TM03 item retains Swords Dance")
 local machopTmhm={}
 for _,move in ipairs(run.data.pokemon.MACHOP.tmhm or {}) do machopTmhm[move]=true end
 for _,move in ipairs({"DYNAMICPUNCH","HEADBUTT","CURSE"}) do
@@ -351,7 +352,7 @@ T.check(hasStatic(MapScripts.talkScript(sanctuary.cave,
   "TEXT_CRYSTAL251_TIDAL_CAVE_LUGIA"),"LUGIA",60,sanctuary.lugiaFlag),
   "Lugia uses the one-time Generation I static-battle command")
 
-T.eq(ecology.period(),"combined","no time provider uses the all-day fallback")
+T.eq(ecology.period(),"day","Crystal supplies a default daytime clock")
 run.loader.hooks:call("world.tod",function() return "NIGHT" end,"DAY",{})
 T.eq(ecology.period(),"night","the final public time-provider value selects night")
 local function secondSlot(encounter)
@@ -450,8 +451,8 @@ run.loader.modOptions.CRYSTAL_251={force_legendary=true,crystal_shinies=true}
 run.loader.modOptions.shiny_indicators={colors=true,markers=true,animation=true,chime=true}
 local titleItems=run.loader.hooks:call("ui.title_menu.items",
   function(_, rows) return rows end,game,{{label="EXIT GAME"}})
-T.eq(titleItems[1].label,"REIMPORT CRYSTAL",
-  "a valid import keeps an explicit reimport action on the title menu")
+T.eq(titleItems[1].label,"EXIT GAME",
+  "required imports are managed by the launcher without a duplicate title action")
 local rolled=run.loader.hooks:call("encounter.roll",function() return {
   species="PIDGEY",level=4} end,run.data.encounters.VIRIDIAN_FOREST,
   {mapId="VIRIDIAN_FOREST",terrain="grass",rng=function(a) return a end})

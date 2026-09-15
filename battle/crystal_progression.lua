@@ -1,4 +1,7 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 local Gender = require("mods.CRYSTAL_251.battle.crystal_gender")
+local Catching = require("mods.CRYSTAL_251.battle.gen2.Catching")
+local Runtime = require("src.mods.Runtime")
 local Happiness = require("mods.CRYSTAL_251.core.gen2.Happiness")
 
 local Progression = {}
@@ -37,60 +40,35 @@ end
 local monGender = Gender.forMon
 Progression.monGender = monGender
 
-local function weightKg(def)
-  local dex = def and def.dexEntry
-  if not dex then return 0 end
-  if dex.weightKg then return dex.weightKg end
-  return (tonumber(dex.weight) or 0) * 0.045359237
-end
-
-local function multiplyRate(rate, multiplier)
-  return clamp(math.floor(rate * multiplier), 1, 255)
+local STATUS = {SLP="sleep",FRZ="freeze",BRN="burn",PSN="poison",PAR="paralyze"}
+function Progression.catchOptions(battle, ball, target, targetDef, rateOverride)
+  local player = battle and battle.player and battle.player.mon or {}
+  target, targetDef = target or {}, targetDef or {}
+  local dex = targetDef.dexEntry or {}
+  return {
+    ball=ball, hp=target.hp, maxHp=target.stats and target.stats.hp,
+    catchRate=rateOverride or targetDef.catchRate or 45,
+    status=STATUS[target.status] or target.status,
+    weight=dex.weight or (dex.weightKg and math.floor(dex.weightKg / 0.045359237 + 0.5)),
+    level=target.level, playerLevel=player.level,
+    species=target.species, playerSpecies=player.species,
+    gender=monGender(target), playerGender=monGender(player),
+    fishing=battle and battle.crystalFishing,
+    random=function(n) return battle.rng(0,n-1) end,
+  }
 end
 
 function Progression.modifiedCatchRate(battle, ball, target, targetDef, rateOverride)
-  local rate = clamp(rateOverride or (targetDef and targetDef.catchRate) or 0, 1, 255)
-  local player = battle and battle.player and battle.player.mon
-  if ball == "ULTRA_BALL" then
-    rate = multiplyRate(rate, 2)
-  elseif ball == "GREAT_BALL" or ball == "SAFARI_BALL" then
-    rate = multiplyRate(rate, 1.5)
-  elseif ball == "HEAVY_BALL" then
-    local kg = weightKg(targetDef)
-    local delta = kg < 102.4 and -20 or kg < 204.8 and 0
-      or kg < 307.2 and 20 or kg < 409.6 and 30 or 40
-    rate = clamp(rate + delta, 1, 255)
-  elseif ball == "LURE_BALL" and battle and battle.crystalFishing then
-    rate = multiplyRate(rate, 3)
-  elseif ball == "FAST_BALL" then
-    local species = target and target.species
-    if species == "MAGNEMITE" or species == "GRIMER" or species == "TANGELA" then
-      rate = multiplyRate(rate, 4)
-    end
-  elseif ball == "LOVE_BALL" and player and target
-      and player.species == target.species then
-    local a, b = monGender(player), monGender(target)
-    if a and a == b then rate = multiplyRate(rate, 8) end
-  elseif ball == "LEVEL_BALL" and player and target then
-    local p, e = player.level or 1, target.level or 1
-    if math.floor(p / 4) > e then rate = multiplyRate(rate, 8)
-    elseif math.floor(p / 2) > e then rate = multiplyRate(rate, 4)
-    elseif p > e then rate = multiplyRate(rate, 2) end
-  end
-  return rate
+  local opts=Progression.catchOptions(battle,ball,target,targetDef,rateOverride)
+  local record=Catching.recordFor(ball)
+  local rate=opts.catchRate
+  if record and record.specialty then rate=record.specialty(rate,opts)
+  elseif record and record.multiplier then rate=rate*record.multiplier end
+  return clamp(rate,1,255)
 end
 
 function Progression.finalCatchRate(battle, ball, target, targetDef, rateOverride)
-  local rate = Progression.modifiedCatchRate(battle, ball, target, targetDef, rateOverride)
-  if ball == "LEVEL_BALL" then return rate end
-  local maxhp = math.max(1, target and target.stats and target.stats.hp or 1)
-  local hp = clamp(target and target.hp or maxhp, 0, maxhp)
-  local value = math.floor((3 * maxhp - 2 * hp) * rate / (3 * maxhp))
-  value = math.max(1, value)
-  if target and (target.status == "SLP" or target.status == "FRZ") then
-    value = value + 10
-  end
-  return clamp(value, 1, 255)
+  return Catching.rate(Progression.catchOptions(battle,ball,target,targetDef,rateOverride))
 end
 
 function Progression.wobbleCount(finalRate, rng)
@@ -108,10 +86,18 @@ end
 
 function Progression.catchAttempt(battle, ball, target, targetDef, rateOverride)
   if ball == "MASTER_BALL" or battle.crystalTutorialCatch then return true, 3 end
-  local finalRate = Progression.finalCatchRate(battle, ball, target, targetDef, rateOverride)
-  battle.crystalFinalCatchRate = finalRate
-  local caught = battle.rng(0,255) <= finalRate
-  return caught, caught and 3 or Progression.wobbleCount(finalRate, battle.rng)
+  local function attempt(_,mon,def,o)
+    local converted=Progression.catchOptions(battle,ball,mon,def,o.rateOverride)
+    converted.random=function(n) return (o.rng or battle.rng)(0,n-1) end
+    local caught,rate=Catching.vanillaAttempt(converted)
+    battle.crystalFinalCatchRate=rate
+    return caught,caught and 3 or Progression.wobbleCount(rate,o.rng or battle.rng)
+  end
+  if Runtime.wantsHook("catch.rate") then
+    return Runtime.call("catch.rate",attempt,ball,target,targetDef,
+      {rng=battle.rng,rateOverride=rateOverride,battle=battle})
+  end
+  return attempt(ball,target,targetDef,{rng=battle.rng,rateOverride=rateOverride})
 end
 
 local function transformed(battler)
@@ -128,17 +114,22 @@ function Progression.prepareCaughtMon(battle)
   if battle.lastBall == "FRIEND_BALL" then mon.happiness = 200 end
   mon.caughtData = {
     level = mon.level,
+    mapId = battle.game and battle.game.overworld and battle.game.overworld.map
+      and battle.game.overworld.map.id,
     ball = battle.lastBall,
     location = battle.crystalCaughtLocation or 0,
     time = battle.crystalCaughtTime or 0,
   }
 end
 
-local function expContext(mon, fn)
+local function expContext(mon, fn, landmark)
   local old = mon._crystal251ExpContext
+  local oldLandmark = mon._crystal251ExpLandmark
   mon._crystal251ExpContext = true
+  mon._crystal251ExpLandmark = landmark
   local ok, a, b = pcall(fn)
   mon._crystal251ExpContext = old
+  mon._crystal251ExpLandmark = oldLandmark
   if not ok then error(a, 0) end
   return a, b
 end
@@ -188,7 +179,9 @@ function Progression.awardExp(next, ctx)
   end
 
   local function apply(mon, split, announce)
-    return expContext(mon, function() return ctx.applyShare(mon, split, announce) end)
+    return expContext(mon, function() return ctx.applyShare(mon, split, announce) end,
+      battle.game and battle.game.overworld and battle.game.overworld.map
+        and battle.game.overworld.map.id)
   end
   if #holders == 0 then
     for _, mon in ipairs(participants) do
@@ -226,23 +219,23 @@ function Progression.trainerBaseReward(battle)
 end
 
 function Progression.installRuntime()
-  local BattleState = require("src.battle.BattleState")
-  local Experience = require("src.battle.Experience")
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
+  local Experience = RuntimePatches.watch(require("src.battle.Experience"))
   local Growth = require("src.pokemon.Growth")
   local Stats = require("src.pokemon.Stats")
-  local Runtime = require("src.mods.Runtime")
   local ItemEffects = require("src.inventory.ItemEffects")
 
-  for id in pairs(BALLS) do ItemEffects.BALLS[id] = true end
+  local itemBalls = RuntimePatches.watch(ItemEffects.BALLS)
+  for id in pairs(BALLS) do itemBalls[id] = true end
 
   if not Experience._crystal251ProgressionBridge then
     Experience._crystal251ProgressionBridge = true
     local originalApply = Experience.apply
     Experience.apply = function(data, mon, defeatedDef, level, isTrainer,
-                                numParticipants, traded)
+                                numParticipants, traded, opts)
       if not mon._crystal251ExpContext then
         return originalApply(data, mon, defeatedDef, level, isTrainer,
-          numParticipants, traded)
+          numParticipants, traded, opts)
       end
       local share = math.max(1, numParticipants or 1)
       local pokerus = mon.pokerus and mon.pokerus ~= 0
@@ -258,23 +251,33 @@ function Progression.installRuntime()
       local cap = data.constants and data.constants.levelCap or 100
       local maxExp = Growth.expForLevel(speciesDef.growthRate, cap, data.growth_rates)
       mon.exp = math.min(maxExp, mon.exp + gained)
-      local levels = {}
+      local levels, steps = {}, {}
       local newLevel = Growth.levelForExp(speciesDef.growthRate, mon.exp, cap,
         data.growth_rates)
-      while mon.level < math.min(newLevel, cap) do
-        mon.level = mon.level + 1
-        Happiness.levelUp(mon)
-        local old = mon.stats
-        mon.stats = Stats.calc(speciesDef, mon.level, mon.dvs, mon.statExp)
-        mon.hp = math.min(mon.stats.hp, mon.hp + (mon.stats.hp - old.hp))
-        levels[#levels + 1] = mon.level
-        if Runtime.wants("pokemon.level_up") then
-          Runtime.emit("pokemon.level_up", {mon=mon,level=mon.level,
-            prevLevel=mon.level-1,
-            learnable=Experience.movesLearnedAt(speciesDef,mon.level)})
+      local from = opts and opts.from
+      local lv, stats, hp = mon.level, mon.stats, mon.hp
+      if from then lv, stats, hp = from.level, from.stats, from.hp end
+      while lv < math.min(newLevel, cap) do
+        lv = lv + 1
+        local old = stats
+        stats = Stats.calc(speciesDef, lv, mon.dvs, mon.statExp)
+        hp = math.min(stats.hp, hp + (stats.hp - old.hp))
+        local step = {level=lv, stats=stats, hp=hp,
+          crystalFriendshipEvent=Happiness.levelUpEvent(mon, mon._crystal251ExpLandmark)}
+        levels[#levels + 1] = lv
+        steps[#steps + 1] = step
+        if not (opts and opts.defer) then
+          Experience.commit(data, mon, step)
         end
       end
-      return levels, gained
+      return levels, gained, steps
+    end
+    local originalCommit = Experience.commit
+    Experience.commit = function(data, mon, step)
+      if step.crystalFriendshipEvent then
+        Happiness.change(mon, step.crystalFriendshipEvent)
+      end
+      return originalCommit(data, mon, step)
     end
   end
 
@@ -370,4 +373,4 @@ function Progression.installRuntime()
   end
 end
 
-return Progression
+return RuntimePatches.installers(Progression)

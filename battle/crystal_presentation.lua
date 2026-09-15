@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 local Presentation = {}
 
 local MOVE_ALIASES = {
@@ -45,7 +46,6 @@ local SPECIAL_ALIASES = {
 
 local animations
 local unownAnimations
-local installed
 local imageCache = setmetatable({}, { __mode="v" })
 
 local function copy(value)
@@ -156,9 +156,9 @@ function Presentation.configure(cache)
 end
 
 function Presentation.installRuntime()
-  if installed then return false end
-  installed = true
-  local BattleState = require("src.battle.BattleState")
+  if Presentation._installed then return false end
+  Presentation._installed = true
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   local original = BattleState.drawBattlerPic
   BattleState.drawBattlerPic = function(self, battler, x, y, scale)
     local definition
@@ -187,7 +187,7 @@ function Presentation.installRuntime()
 end
 
 function Presentation.resetForTests()
-  installed = nil
+  Presentation._installed = nil
   animations = nil
   unownAnimations = nil
   imageCache = setmetatable({}, { __mode="v" })
@@ -196,4 +196,4 @@ end
 Presentation.moveAliases = MOVE_ALIASES
 Presentation.specialAliases = SPECIAL_ALIASES
 
-return Presentation
+return RuntimePatches.installers(Presentation)

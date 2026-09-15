@@ -70,4 +70,22 @@ function Clock.forSave(save)
   return Clock.daytime(Clock.hour(save))
 end
 
+-- The Kanto runtime owns an overworld, not the native Gen II world object.
+function Clock.normalizePeriod(value)
+  if type(value) ~= "string" then return nil end
+  return ({ MORNING="MORNING", MORN="MORNING", MORN_F="MORNING",
+    DAY="DAY", DAY_F="DAY", NIGHT="NIGHT", NITE="NIGHT", NITE_F="NIGHT",
+    EVENING="NIGHT" })[value:upper()]
+end
+
+function Clock.forGame(game)
+  local world = game and (game.overworld or game.world)
+  if world and type(world.timeOfDay) == "function" then
+    local ok, value = pcall(world.timeOfDay, world)
+    local period = ok and Clock.normalizePeriod(value)
+    if period then return period end
+  end
+  return Clock.forSave(game and game.save)
+end
+
 return Clock

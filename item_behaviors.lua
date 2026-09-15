@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Crystal item behavior that has no Gen I equivalent.  Everything in this
 -- module is installed by CRYSTAL_251; the base item and encounter engines stay
 -- untouched when the mod is disabled.
@@ -138,7 +139,7 @@ end
 -- Gen I flow only knows that UI for Ether, so wrap the constructed screen and
 -- replace only MysteryBerry's USE callback.
 local function installMysteryBerryUI()
-  local BagMenu = require("src.ui.BagMenu")
+  local BagMenu = RuntimePatches.watch(require("src.ui.BagMenu"))
   if BagMenu._crystal251MysteryBerry then return end
   BagMenu._crystal251MysteryBerry = true
   local originalNew = BagMenu.new
@@ -200,4 +201,4 @@ function Behaviors.install(mod)
   return Behaviors
 end
 
-return Behaviors
+return RuntimePatches.installers(Behaviors)

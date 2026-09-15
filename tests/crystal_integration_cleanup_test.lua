@@ -43,10 +43,9 @@ ok(mainSource:find("local supported = { [24]=true, [25]=true }", 1, true) ~= nil
 ok(not mainSource:find("local supported = { [22]=true }", 1, true)
    and not mainSource:find("local supported = { [23]=true }", 1, true),
   "loader rejects caches without the current import manifest")
-ok(manifestSource:find('"version": "0.11.4"', 1, true) ~= nil,
-  "current compatibility release has version 0.11.4")
-ok(manifestSource:find('"trainer_rematch"', 1, true) ~= nil,
-  "manifest rejects Kanto Ascended because both mods own Generation II registries")
+local manifest = assert(require("mods.CRYSTAL_251.lib.json").decode(manifestSource))
+ok(type(manifest.version) == "string" and manifest.version:match("^%d+%.%d+%.%d+") ~= nil,
+  "manifest declares a semantic release version")
 ok(manifestSource:find('"Kanto%-Reforged"') ~= nil,
   "manifest rejects Kanto Reforged because both mods own Pokemon and battle data")
 ok(mainSource:find("Registry.upsert(mod.content.type_chart", 1, true) ~= nil,

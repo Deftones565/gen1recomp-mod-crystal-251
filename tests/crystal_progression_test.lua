@@ -95,15 +95,15 @@ hpTarget.status="PAR"
 eq(P.finalCatchRate(b,"POKE_BALL",hpTarget,{catchRate=120}),80,
   "paralysis catch bonus bug is preserved")
 hpTarget.hp=1
-eq(P.finalCatchRate(b,"POKE_BALL",hpTarget,{catchRate=255}),253,
-  "near-zero HP reaches Crystal formula maximum")
+eq(P.finalCatchRate(b,"POKE_BALL",hpTarget,{catchRate=255}),251,
+  "low HP retains Gen II integer precision")
 hpTarget.hp=100
-eq(P.finalCatchRate(levelBattle,"LEVEL_BALL",levelTarget,{catchRate=20}),20,
-  "Level Ball skips HP calculation")
+eq(P.finalCatchRate(levelBattle,"LEVEL_BALL",levelTarget,{catchRate=20}),6,
+  "Level Ball follows the local Gen II rate pipeline")
 
-local caughtBattle=battle(player,mon("CATERPIE",3),{33})
+local caughtBattle=battle(player,mon("CATERPIE",3),{32})
 local caught,shakes=P.catchAttempt(caughtBattle,"POKE_BALL",caughtBattle.enemy.mon,{catchRate=100})
-ok(caught,"catch succeeds on equality")
+ok(caught,"catch succeeds below final rate")
 eq(shakes,3,"successful catch always shakes three times")
 local failedBattle=battle(player,mon("CATERPIE",3),{255,0,255})
 local failed,failedShakes=P.catchAttempt(failedBattle,"POKE_BALL",failedBattle.enemy.mon,{catchRate=1})

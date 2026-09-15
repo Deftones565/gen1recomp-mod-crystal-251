@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 local Runtime = require("src.mods.Runtime")
 
 local Switching = {}
@@ -233,7 +234,7 @@ local function isMove(action, id)
 end
 
 function Switching.installRuntime()
-  local BattleState = require("src.battle.BattleState")
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   if BattleState._crystal251SwitchingBridge then return end
   BattleState._crystal251SwitchingBridge = true
 
@@ -394,4 +395,4 @@ function Switching.installRuntime()
   end
 end
 
-return Switching
+return RuntimePatches.installers(Switching)

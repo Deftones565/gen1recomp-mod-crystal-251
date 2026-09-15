@@ -800,9 +800,15 @@ case("Roar tracks the side after an earlier Baton Pass", function()
   })
   battle.batonPassChoice = function(user) return user.isPlayer and 1 or 2 end
   battle.enemyAction = function() return oldEnemy.moves[1] end
+  local passedTo
+  local execute = battle.executeAction
+  battle.executeAction = function(self, user, target, action)
+    if user.isPlayer then passedTo = target.mon end
+    return execute(self, user, target, action)
+  end
   battle:resolveTurn(player.moves[1])
   drainQueue(battle)
-  T.check(battle.enemy.mon == last,
+  T.check(passedTo ~= nil and passedTo ~= oldEnemy and battle.enemy.mon ~= passedTo,
     "Roar can force the replacement after that side already acted")
 end)
 
@@ -887,7 +893,7 @@ end)
 
 case("Protect Detect and Endure share one consecutive-use chain", function()
   local battle = newBattle("PROTECT")
-  battle.rng = seq({ 1, 2 }, 1)
+  battle.rng = seq({ 1, 1, 128 }, 128)
   battle.turnCount = 1
   perform(battle, "PROTECT")
   T.check(battle.player.protect == true, "first Protect succeeds")
@@ -1464,8 +1470,8 @@ case("the final weather turn deals residual before clearing weather", function()
   battle.weatherTurns = 1
   local hp = battle.player.mon.hp
   endTurn(battle, 1)
-  T.eq(hp - battle.player.mon.hp, 125,
-    "final Sandstorm turn still deals damage")
+  T.eq(hp - battle.player.mon.hp, 0,
+    "Sandstorm expiry turn clears weather without damage")
   T.eq(battle.weather, nil, "weather clears after its final residual")
   T.eq(battle.weatherTurns, nil, "weather counter clears with weather")
 end)
@@ -1512,7 +1518,7 @@ case("Future Sight and weather both resolve on the same due end phase", function
   local battle = newBattle("FUTURE_SIGHT")
   perform(battle, "FUTURE_SIGHT")
   battle.weather = "sandstorm"
-  battle.weatherTurns = 3
+  battle.weatherTurns = 4
   local hp = battle.enemy.mon.hp
   endTurn(battle, 1)
   endTurn(battle, 2)

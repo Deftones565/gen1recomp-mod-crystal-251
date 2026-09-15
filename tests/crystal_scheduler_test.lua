@@ -229,15 +229,14 @@ do
   eq(b.enemy.substituteHP, nil, "Future Sight can break Substitute")
 end
 
--- Weather runs before held-item recovery and Future Sight, damages in serial order, and clears only
--- after the final weather tick has applied.
+-- Weather follows Future Sight and precedes recovery; expiry deals no damage.
 do
   local p, e = battler("MEW", true), battler("GEODUDE", false)
   e.curTypes = {"ROCK","GROUND"}
   local b = battle(p, e)
   b.weather, b.weatherTurns = "sandstorm", 1
   Scheduler.handleWeather(b)
-  eq(p.mon.hp, 140, "Sandstorm removes one eighth from vulnerable battler")
+  eq(p.mon.hp, 160, "Sandstorm expiry does not damage vulnerable battler")
   eq(e.mon.hp, 160, "Rock or Ground battler ignores Sandstorm")
   eq(b.weather, nil, "weather clears after final damage tick")
   eq(b.weatherTurns, nil, "weather counter clears with weather")
@@ -334,8 +333,9 @@ do
   b.crystalSchedulerTrace = {}
   Scheduler.endTurn(b)
   eq(table.concat(b.crystalSchedulerTrace, ","),
-    "residual:player,residual:enemy,weather,wrap,leftovers,mysteryberry," ..
-    "healing,future_sight,perish,defrost,safeguard,screens,encore,lockon",
+    "status:player,seed_curse:player,status:enemy,seed_curse:enemy," ..
+    "future_sight,weather,wrap,perish,leftovers,mysteryberry," ..
+    "defrost,safeguard,screens,healing,encore,lockon",
     "scheduler follows Gen 2 HandleBetweenTurnEffects order")
 end
 

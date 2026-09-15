@@ -1,9 +1,8 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Pokemon Crystal turn-resolution and between-turn scheduler.
 --
--- Gen 2 resolves the shared end-of-turn pipeline in battler order:
--- weather, status damage, Leech Seed/Curse/Nightmare, partial trapping,
--- held recovery, Future Sight, Perish Song, defrost, Safeguard, screens,
--- Encore, and lock-on counters.
+-- Crystal applies status/seed/curse damage after each action. Shared phases
+-- follow HandleBetweenTurnEffects in pret/pokecrystal engine/battle/core.asm.
 
 local Runtime = require("src.mods.Runtime")
 local CrystalItems = require("mods.CRYSTAL_251.battle.crystal_items")
@@ -76,16 +75,25 @@ function Scheduler.afterAction(battle, battler, opponent)
   battle.crystalResidualTurns = battle.crystalResidualTurns or {}
   battle.crystalActionOrder = battle.crystalActionOrder or {}
   battle.crystalActionOrder[#battle.crystalActionOrder + 1] = sideKey(battler)
-  -- Gen 2 applies residuals in HandleBetweenTurnEffects, after weather and
-  -- in battler order. The action hook only records that the action happened.
+  local key = sideKey(battler)
+  if battle.crystalResidualTurns[key]
+      or (battler.crystalEnteredTurn or 0) > (battle.turnCount or 0) then return false end
+  battle.crystalResidualTurns[key] = true
+  trace(battle, "status", battler)
+  queueMessages(battle, battler, CrystalStatus.statusResidual(battler, battle))
+  if alive(battler) then
+    trace(battle, "seed_curse", battler)
+    queueMessages(battle, battler,
+      CrystalStatus.seedCurseResidual(battler, opponent, battle))
+  end
+  faintIfNeeded(battle, battler)
   return true
 end
 
 local function ensureActionResiduals(battle)
-  -- Direct test probes and a few nonstandard battle drivers emit turn_ended
-  -- without going through executeAction.  Preserve exact live behavior while
-  -- giving those callers the same result once per side.
-  return battle
+  for _, battler in ipairs(endOrder(battle)) do
+    Scheduler.afterAction(battle, battler, opponentOf(battle, battler))
+  end
 end
 
 local function checkFaints(battle)
@@ -209,21 +217,15 @@ function Scheduler.endTurn(battle)
   if not battle.result then
     ensureActionResiduals(battle)
 
-    trace(battle, "weather")
-    Scheduler.handleWeather(battle)
     checkFaints(battle)
-
     if not battle.result then
-      for _, battler in ipairs(endOrder(battle)) do
-        if alive(battler) then
-          trace(battle, "status", battler)
-          queueMessages(battle, battler,
-            CrystalStatus.statusResidual(battler, battle))
-          trace(battle, "seed_curse", battler)
-          queueMessages(battle, battler,
-            CrystalStatus.seedCurseResidual(battler, opponentOf(battle, battler), battle))
-        end
-      end
+      trace(battle, "future_sight")
+      SpecialDamage.tickFutureSight(battle, endOrder(battle))
+      checkFaints(battle)
+    end
+    if not battle.result then
+      trace(battle, "weather")
+      Scheduler.handleWeather(battle)
       checkFaints(battle)
     end
     if not battle.result then
@@ -231,23 +233,17 @@ function Scheduler.endTurn(battle)
       Scheduler.handleWrap(battle)
       checkFaints(battle)
     end
-    if not battle.result then trace(battle, "leftovers"); CrystalItems.handleLeftovers(battle, endOrder(battle)) end
-    if not battle.result then trace(battle, "mysteryberry"); CrystalItems.handleMysteryBerry(battle, endOrder(battle)) end
-    if not battle.result then trace(battle, "healing"); CrystalItems.handleHealingItems(battle, endOrder(battle)) end
-
-    if not battle.result then
-      trace(battle, "future_sight")
-      SpecialDamage.tickFutureSight(battle, endOrder(battle))
-      checkFaints(battle)
-    end
     if not battle.result then
       trace(battle, "perish")
       CrystalStatus.tickPerish(battle, endOrder(battle))
       checkFaints(battle)
     end
+    if not battle.result then trace(battle, "leftovers"); CrystalItems.handleLeftovers(battle, endOrder(battle)) end
+    if not battle.result then trace(battle, "mysteryberry"); CrystalItems.handleMysteryBerry(battle, endOrder(battle)) end
     if not battle.result then trace(battle, "defrost"); CrystalStatus.handleDefrost(battle, endOrder(battle)) end
     if not battle.result then trace(battle, "safeguard"); CrystalStatus.tickSafeguard(battle, endOrder(battle)) end
     if not battle.result then trace(battle, "screens"); Scheduler.handleScreens(battle, endOrder(battle)) end
+    if not battle.result then trace(battle, "healing"); CrystalItems.handleHealingItems(battle, endOrder(battle)) end
     if not battle.result then trace(battle, "encore"); CrystalStatus.tickEncore(battle, endOrder(battle)) end
     if not battle.result then trace(battle, "lockon"); tickLockOn(battle) end
   end
@@ -265,7 +261,7 @@ function Scheduler.onTurnEnded(ev)
 end
 
 function Scheduler.installRuntime()
-  local BattleState = require("src.battle.BattleState")
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   if BattleState._crystal251SchedulerBridge then return end
   BattleState._crystal251SchedulerBridge = true
 
@@ -347,4 +343,4 @@ function Scheduler.installRuntime()
   end
 end
 
-return Scheduler
+return RuntimePatches.installers(Scheduler)

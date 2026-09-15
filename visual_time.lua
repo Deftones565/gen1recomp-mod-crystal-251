@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Gen 2-style time-of-day lighting for the Gen 1 overworld.
 -- Gen 1 map art is DMG/SGB-colored, so the tint is applied after the world
 -- palette pass and before the UI pass. This keeps menus and text crisp.
@@ -89,7 +90,7 @@ function VisualTime.paint(r, g, b)
 end
 
 function VisualTime.install()
-  local Renderer = require("src.render.Renderer")
+  local Renderer = RuntimePatches.watch(require("src.render.Renderer"))
   if Renderer.crystal251TimeLighting then return end
   Renderer.crystal251TimeLighting = true
   local original = Renderer.endFrame
@@ -115,4 +116,4 @@ function VisualTime.install()
   end
 end
 
-return VisualTime
+return RuntimePatches.installers(VisualTime)

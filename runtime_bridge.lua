@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 -- Crystal-only runtime adaptation layer.
 --
 -- This module deliberately patches engine functions only at runtime while the
@@ -41,7 +42,7 @@ function Bridge.setHeldItems(items)
 end
 
 local function installPokemonBridge()
-  local Pokemon = require("src.pokemon.Pokemon")
+  local Pokemon = RuntimePatches.watch(require("src.pokemon.Pokemon"))
   if Pokemon._crystal251RuntimeBridge then return end
   Pokemon._crystal251RuntimeBridge = true
 
@@ -62,7 +63,7 @@ local function installPokemonBridge()
 end
 
 local function installWildBattleBridge()
-  local BattleState = require("src.battle.BattleState")
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   local CrystalStatus = require("mods.CRYSTAL_251.battle.crystal_status")
   if BattleState._crystal251WildItemBridge then return end
   BattleState._crystal251WildItemBridge = true
@@ -89,7 +90,7 @@ local function installWildBattleBridge()
 end
 
 local function installSecondarySubstituteBridge()
-  local EffectRegistry = require("src.battle.EffectRegistry")
+  local EffectRegistry = RuntimePatches.watch(require("src.battle.EffectRegistry"))
   if EffectRegistry._crystal251SubstituteBridge then return end
   EffectRegistry._crystal251SubstituteBridge = true
 
@@ -127,7 +128,7 @@ local function installSecondarySubstituteBridge()
 end
 
 local function installRageBridge()
-  local BattleState = require("src.battle.BattleState")
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   if BattleState._crystal251RageBridge then return end
   BattleState._crystal251RageBridge = true
 
@@ -162,9 +163,9 @@ end
 
 
 local function installStatusBridge()
-  local Status = require("src.battle.Status")
-  local StatusRegistry = require("src.battle.StatusRegistry")
-  local BattleState = require("src.battle.BattleState")
+  local Status = RuntimePatches.watch(require("src.battle.Status"))
+  local StatusRegistry = RuntimePatches.watch(require("src.battle.StatusRegistry"))
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   local CrystalStatus = require("mods.CRYSTAL_251.battle.crystal_status")
   if Status._crystal251StatusBridge then return end
   Status._crystal251StatusBridge = true
@@ -213,7 +214,7 @@ local function installStatusBridge()
 end
 
 local function installConsecutiveInterruptBridge()
-  local BattleState = require("src.battle.BattleState")
+  local BattleState = RuntimePatches.watch(require("src.battle.BattleState"))
   if BattleState._crystal251ConsecutiveInterruptBridge then return end
   BattleState._crystal251ConsecutiveInterruptBridge = true
 
@@ -302,4 +303,4 @@ function Bridge.install()
   return true
 end
 
-return Bridge
+return RuntimePatches.installers(Bridge)

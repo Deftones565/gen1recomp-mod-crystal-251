@@ -1,4 +1,6 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 local Cache = require("mods.CRYSTAL_251.lib.cache")
+local Clock = require("mods.CRYSTAL_251.core.gen2.Clock")
 
 -- These Generation II moves share an effect byte with a Generation I move,
 -- but Crystal stores a per-move effect chance.  Old content caches already
@@ -219,7 +221,7 @@ local function installItems(mod)
 end
 
 local function installItemBridge()
-  local ItemEffects = require("src.inventory.ItemEffects")
+  local ItemEffects = RuntimePatches.watch(require("src.inventory.ItemEffects"))
   if ItemEffects._crystal251BridgeInstalled then return end
   ItemEffects._crystal251BridgeInstalled = true
   local extras = { KINGS_ROCK=true, METAL_COAT=true, DRAGON_SCALE=true,
@@ -284,6 +286,12 @@ local function registerContent(mod, cache)
     pack=function(mon) return mon.crystal251Legendary end,
     unpack=function(mon, value) mon.crystal251Legendary=value end,
   })
+  -- Gen II blocks spontaneous evolution while holding Everstone. Item use
+  -- remains allowed, as in the recomp's native Gen II Evolution.METHODS.
+  mod.hooks:wrap("evolution.check", function(next, game, mon, evo, trigger)
+    if mon.heldItem == "EVERSTONE" and evo.method ~= "ITEM" then return false end
+    return next(game, mon, evo, trigger)
+  end)
   local comparisons = {
     CRYSTAL_STAT_GT=function(a,b) return a>b end,
     CRYSTAL_STAT_LT=function(a,b) return a<b end,
@@ -299,7 +307,6 @@ local function registerContent(mod, cache)
     })
   end
   local Happiness = require("mods.CRYSTAL_251.core.gen2.Happiness")
-  local Clock = require("mods.CRYSTAL_251.core.gen2.Clock")
   local VisualTime = require("mods.CRYSTAL_251.visual_time")
   VisualTime.bindOptionSource(function() return mod.options:get("time_test") end)
   VisualTime.install()
@@ -307,11 +314,8 @@ local function registerContent(mod, cache)
     if not (trigger and trigger.kind == "levelup") then return false end
     if (mon.happiness or Happiness.BASE) < Happiness.TO_EVOLVE then return false end
     if mon.heldItem == "EVERSTONE" then return false end
-    local tod = trigger.timeOfDay or trigger.tod
-    if not tod and game and game.world and game.world.timeOfDay then
-      local ok, value = pcall(game.world.timeOfDay, game.world)
-      if ok then tod = value end
-    end
+    local tod = Clock.normalizePeriod(trigger.timeOfDay or trigger.tod)
+      or Clock.forGame(game)
     local night = tod == "NITE" or tod == "NITE_F" or tod == "NIGHT"
     if requiredTime == "NITE" and not night then return false end
     if requiredTime == "MORNDAY" and night then return false end
@@ -330,8 +334,8 @@ local function registerContent(mod, cache)
     local Game = require("src.core.Game")
     local save = Game and Game.save
     if not save then return next(tod, ctx) end
-    return Clock.forSave(save)
-  end, 120)
+    return next(Clock.forSave(save), ctx)
+  end, 0)
 
   local existingMoveByIndex = {}
   for id, def in mod.content.moves:each() do if def.index then existingMoveByIndex[def.index]=id end end
@@ -373,7 +377,6 @@ local function registerContent(mod, cache)
   mod.events:on("world.stepped", function()
     local Game = require("src.core.Game")
     if Game and Game.save then
-      CrystalProgression.Happiness.step(Game.save)
       for _, mon in ipairs(Game.save.party or {}) do
         CrystalProgression.ensureHappiness(mon)
       end
@@ -399,6 +402,14 @@ local function registerContent(mod, cache)
     row.crystalHeldItems = nil
     row.frontAnimation = nil
     if old then
+      -- Kanto still awards its original TMs. Retain their native compatibility
+      -- alongside the imported Crystal list so those rewards remain usable.
+      local known = {}
+      for _, move in ipairs(row.tmhm or {}) do known[move] = true end
+      row.tmhm = row.tmhm or {}
+      for _, move in ipairs(old.tmhm or {}) do
+        if not known[move] then row.tmhm[#row.tmhm + 1] = move; known[move] = true end
+      end
       -- Crystal's Time Capsule deliberately restores the original Kanto base
       -- Special. Johto has no official Gen I value and keeps the imported
       -- stronger-special policy recorded in the cache.
@@ -561,7 +572,8 @@ local function registerContent(mod, cache)
   mod.exports.heldItemManagement = heldItemManagement
 end
 
-return function(mod)
+return RuntimePatches.capture(function(mod)
+  RuntimePatches.bind(mod)
   local cache, staleCache = loadCache(mod)
   local game
   mod.options:define({
@@ -691,6 +703,7 @@ return function(mod)
     mod, cache.eggAssets, cache.daycareIconAssets)
   mod.exports.crystalDaycare = daycare
   installItemBridge()
+  require("mods.CRYSTAL_251.core.gen2.HappinessBridge").install(mod)
   require("mods.CRYSTAL_251.legendaries").install(mod)
   local shinyPaths, dexPaths = {}, {}
   for _, row in ipairs(cache.species) do
@@ -738,4 +751,4 @@ return function(mod)
   mod.exports.dexSize = 251
   mod.log:info("loaded %d Pokemon and %d moves from %s",
     #cache.species, #cache.moves, cache.revision)
-end
+end)

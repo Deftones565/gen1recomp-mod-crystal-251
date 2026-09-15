@@ -20,7 +20,7 @@ package.loaded["src.render.Font"] = {
   draw=function(text, x, y)
     draws[#draws + 1] = { text=text, x=x, y=y }
     local n = 0
-    for _ in tostring(text):gmatch("[\0-\127\194-\244][\128-\191]*") do n = n + 1 end
+    for _ in tostring(text):gmatch("[%z\1-\127\194-\244][\128-\191]*") do n = n + 1 end
     return n * 8
   end,
 }
@@ -160,26 +160,34 @@ eq(delegated, "male", "non-Crystal gender providers remain in the hook chain")
 eq(Gender.installRuntime(), true, "native gender runtime installs")
 eq(Summary.installRuntime(), true, "native split-stat runtime installs")
 
+local function glyphCount()
+  local count = 0
+  for _, draw in ipairs(draws) do
+    if tostring(draw.text):find("♂",1,true) or tostring(draw.text):find("♀",1,true) then count=count+1 end
+  end
+  return count
+end
+
 local battle = {
   game=game, crystal251Active=true, introSlide=0,
   enemy={ name="ENEMY", mon=female }, player={ name="PLAYER", mon=male },
 }
 BattleState.drawHUDs(battle, 0)
 eq(battle.nativeHudDraws, 1, "Gen 3 UI path preserves the wrapped native HUD lifecycle")
-eq(#draws, 0, "Crystal native gender glyph does not leak under the Gen 3 HUD")
+eq(glyphCount(), 0, "Crystal native gender glyph does not leak under the Gen 3 HUD")
 
 local summary = { game=game, mon=female, page=1 }
 SummaryMenu.draw(summary)
 eq(summary.nativeSummaryDraws, 1,
   "Gen 3 UI path preserves the wrapped native Summary lifecycle")
 eq(rectangles, 0, "Crystal native split-stat panel does not leak under Gen 3 Summary")
-eq(#draws, 0, "Crystal native Summary gender does not leak under Gen 3 Summary")
+eq(glyphCount(), 0, "Crystal native Summary gender does not leak under Gen 3 Summary")
 
 game.mods.modOptions.gen3_battle_ui = {
   revampedBattleUI=false, hideNativeBattleUI=false, revampedPokemonMenu=false,
 }
 BattleState.drawHUDs(battle, 0)
-ok(#draws >= 2, "turning off Gen 3 battle UI restores Crystal native gender")
+ok(glyphCount() >= 2, "turning off Gen 3 battle UI restores Crystal native gender")
 local beforeRectangles = rectangles
 SummaryMenu.draw(summary)
 ok(rectangles > beforeRectangles,

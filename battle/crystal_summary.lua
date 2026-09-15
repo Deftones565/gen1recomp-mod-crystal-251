@@ -1,3 +1,4 @@
+local RuntimePatches = require("mods.CRYSTAL_251.lib.runtime_patches")
 local CrystalDamage = require("mods.CRYSTAL_251.battle.crystal_damage")
 
 local Summary = {}
@@ -97,7 +98,7 @@ function Summary.drawSplitStats(menu)
 end
 
 function Summary.installRuntime()
-  local SummaryMenu = require("src.ui.SummaryMenu")
+  local SummaryMenu = RuntimePatches.watch(require("src.ui.SummaryMenu"))
   if SummaryMenu._crystal251SpecialSplit then return false end
   SummaryMenu._crystal251SpecialSplit = true
   local originalDraw = SummaryMenu.draw
@@ -110,4 +111,4 @@ function Summary.installRuntime()
   return true
 end
 
-return Summary
+return RuntimePatches.installers(Summary)

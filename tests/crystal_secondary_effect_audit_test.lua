@@ -20,32 +20,8 @@ local raw = file:read("*a")
 file:close()
 
 local addresses = require("mods.CRYSTAL_251.addresses")
-local revision = addresses.revisions["f2f52230b536214ef7c9924f483392993e226cfb"]
-local generatedFiles = {}
-local cache = require("mods.CRYSTAL_251.lib.extractor").extract(raw, revision, {
-  writePicture=function(path) generatedFiles[#generatedFiles + 1] = path end,
-})
-cache.importFiles = generatedFiles
-local encoded = require("mods.CRYSTAL_251.lib.json").encode(cache)
-local generatedSet = {}
-for _, path in ipairs(generatedFiles) do generatedSet[path] = true end
-
-local oldInfo, oldRead = love.filesystem.getInfo, love.filesystem.read
-love.filesystem.getInfo = function(path, kind)
-  if path == "crystal_251/content.json" or generatedSet[path] then
-    return { type="file" }
-  end
-  return oldInfo(path, kind)
-end
-love.filesystem.read = function(path)
-  if path == "crystal_251/content.json" then return encoded end
-  return oldRead(path)
-end
-
-local Data = require("src.core.Data")
-Data:load()
-local run = T.sdk.loadMod("mods/CRYSTAL_251", { data=Data })
-love.filesystem.getInfo, love.filesystem.read = oldInfo, oldRead
+local run, cache = require("mods.CRYSTAL_251.tests._real_rom_mod").load(T, raw)
+local Data = run.data
 T.eq(#run.errors, 0, "Crystal 251 loads for the secondary-effect audit")
 
 local BattleState = require("src.battle.BattleState")

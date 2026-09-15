@@ -127,9 +127,9 @@ T.eq(data.species[150].crystalEggGroups[1], 15,
   "Mewtwo remains in the No Eggs group")
 T.eq(data.moves[165].effect, "RECOIL_EFFECT", "Crystal effect bytes map correctly")
 local eeveeEvos = {}
-for _, evo in ipairs(data.species[133].evolutions) do eeveeEvos[evo.species]=evo.item end
-T.eq(eeveeEvos.ESPEON, "SUN_STONE", "Espeon uses the timeless day substitute")
-T.eq(eeveeEvos.UMBREON, "MOON_STONE", "Umbreon uses the timeless night substitute")
+for _, evo in ipairs(data.species[133].evolutions) do eeveeEvos[evo.species]=evo.method end
+T.eq(eeveeEvos.ESPEON, "EVOLVE_HAPPINESS_MORNDAY", "Espeon uses daytime friendship")
+T.eq(eeveeEvos.UMBREON, "EVOLVE_HAPPINESS_NITE", "Umbreon uses nighttime friendship")
 local expectedStones = {
   [25] = "THUNDER_STONE", [37] = "FIRE_STONE", [44] = "LEAF_STONE",
   [61] = "WATER_STONE", [90] = "WATER_STONE", [102] = "LEAF_STONE",

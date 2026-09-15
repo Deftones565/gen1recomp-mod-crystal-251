@@ -51,8 +51,13 @@ local data = require("mods.CRYSTAL_251.lib.extractor").extract(raw, revision, {
     if not palette and not name:find("/dex/", 1, true)
         and not name:match("_dex%.png$") then
       local raster = Picture.shadeRaster(bytes, w, h, layout)
-      allNormalRasters[#allNormalRasters + 1] = name .. "\0" .. w .. "x" .. h
-        .. "\0" .. raster
+      -- Keep the independently audited battle-art golden stable as the
+      -- importer adds Day Care and egg sheets. All sheets still get mask checks.
+      if not name:find('/daycare_icons/',1,true) and not name:find('/egg/',1,true)
+          and not name:find('/animations/',1,true) then
+        allNormalRasters[#allNormalRasters + 1] = name .. "\0" .. w .. "x" .. h
+          .. "\0" .. raster
+      end
       local transparent = Picture.boundaryTransparency(raster, w * 8, h * 8)
       local mask = {}
       for index = 1, #raster do mask[index] = transparent[index] and "1" or "0" end
@@ -72,7 +77,7 @@ T.eq(#allNormalRasters, 556,
   "visual sweep covers battle art, Unown forms, and both legendary map sprites")
 T.eq(digest(table.concat(allNormalRasters, "\0")), "126d29c9f610001d",
   "all 556 normal Crystal sprite rasters match the audited visual snapshot")
-T.eq(#alphaMasks, 556,
+T.eq(#alphaMasks, 686,
   "every normal Crystal sprite receives a decoded transparency mask")
 for _, entry in ipairs(alphaMasks) do
   T.check(entry:find("1", 1, true) ~= nil,

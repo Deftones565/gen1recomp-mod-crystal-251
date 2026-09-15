@@ -12,28 +12,8 @@ end
 local raw = file:read("*a")
 file:close()
 
-local revision = require("mods.CRYSTAL_251.addresses").revisions
-  ["f2f52230b536214ef7c9924f483392993e226cfb"]
-local cache = require("mods.CRYSTAL_251.lib.extractor").extract(raw, revision, {
-  writePicture = function() end,
-  writeAudio = function() end,
-})
-local encoded = require("mods.CRYSTAL_251.lib.json").encode(cache)
-
-local oldInfo, oldRead = love.filesystem.getInfo, love.filesystem.read
-love.filesystem.getInfo = function(p, kind)
-  if p == "crystal_251/content.json" then return { type = "file" } end
-  return oldInfo(p, kind)
-end
-love.filesystem.read = function(p)
-  if p == "crystal_251/content.json" then return encoded end
-  return oldRead(p)
-end
-
-local Data = require("src.core.Data")
-Data:load()
-local run = T.sdk.loadMod("mods/CRYSTAL_251", { data = Data })
-love.filesystem.getInfo, love.filesystem.read = oldInfo, oldRead
+local run, cache = require("mods.CRYSTAL_251.tests._real_rom_mod").load(T, raw)
+local Data = run.data
 
 local checks, failures = 0, 0
 local function check(value, message)

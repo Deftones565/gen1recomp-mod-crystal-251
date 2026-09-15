@@ -469,6 +469,8 @@ local fakeMod={
 Daycare.resetForTests()
 local testIconAssets={}
 for i=1,38 do testIconAssets[i]="daycare/icon_"..i..".png" end
+local vanillaStep = package.loaded["src.world.OverworldController"].onStepComplete
+local vanillaHeal = package.loaded["src.pokemon.Pokemon"].heal
 Daycare.install(fakeMod,{front="egg/front.png",icon="egg/icon.png"},testIconAssets)
 ok(mapPatches.DAYCARE and mapPatches.DAYCARE.objects.__append,
   "lady is added with the map-list append wrapper")
@@ -535,6 +537,25 @@ eq(runtimeBoarder.exp,beforeRuntime+1,
 eq(vanillaSteps,1,"ordinary Day Care steps continue into the vanilla pipeline")
 package.loaded["src.pokemon.Pokemon"].heal(healedEgg)
 eq(healedEgg.hp,0,"Pokemon Center healing leaves an Egg at zero HP")
+
+local patches = require("mods.CRYSTAL_251.lib.runtime_patches")
+patches.restore()
+eq(package.loaded["src.world.OverworldController"].onStepComplete, vanillaStep,
+  "unload restores the deferred Day Care step function")
+eq(package.loaded["src.world.OverworldController"]._crystal251DaycareStepBridge, nil,
+  "unload removes the Day Care step installation marker")
+eq(package.loaded["src.pokemon.Pokemon"].heal, vanillaHeal,
+  "unload restores Pokemon healing")
+readyListener()
+eq(package.loaded["src.world.OverworldController"].onStepComplete, vanillaStep,
+  "a stale game.ready callback cannot reinstall the disabled mod")
+Daycare.install(fakeMod,{front="egg/front.png",icon="egg/icon.png"},testIconAssets)
+readyListener()
+local expBeforeReenable = runtimeBoarder.exp
+package.loaded["src.world.OverworldController"].onStepComplete({})
+eq(runtimeBoarder.exp, expBeforeReenable + 1,
+  "re-enabling installs exactly one fresh Day Care step wrapper")
+patches.restore()
 
 if failures > 0 then
   io.stderr:write(("%d/%d Crystal daycare checks failed\n"):format(failures, checks))

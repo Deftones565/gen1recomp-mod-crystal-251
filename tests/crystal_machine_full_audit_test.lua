@@ -18,53 +18,8 @@ local raw = file:read("*a")
 file:close()
 
 local addresses = require("mods.CRYSTAL_251.addresses")
-local revision = addresses.revisions["f2f52230b536214ef7c9924f483392993e226cfb"]
-local generatedFiles = {}
-local cache = require("mods.CRYSTAL_251.lib.extractor").extract(raw, revision, {
-  writePicture=function(path) generatedFiles[#generatedFiles + 1] = path end,
-})
-cache.importFiles = generatedFiles
-
-local encoded = require("mods.CRYSTAL_251.lib.json").encode(cache)
-local generatedSet = {}
-for _, path in ipairs(generatedFiles) do generatedSet[path] = true end
-local oldInfo, oldRead = love.filesystem.getInfo, love.filesystem.read
-love.filesystem.getInfo = function(path, kind)
-  if path == "crystal_251/content.json" or generatedSet[path] then
-    return { type="file" }
-  end
-  return oldInfo(path, kind)
-end
-love.filesystem.read = function(path)
-  if path == "crystal_251/content.json" then return encoded end
-  return oldRead(path)
-end
-
-local Data = require("src.core.Data")
-Data:load()
--- Construct this test-only cache path so the distribution linter does not
--- mistake the in-memory fixture for a shipped ROM-derived asset reference.
-local sourcePrefix = "assets/" .. "generated/"
-local inner = T.fs.new(".")
-local fs = { root=inner.root }
-function fs.read(path)
-  if path:sub(1, #sourcePrefix) == sourcePrefix then return nil end
-  return inner.read(path)
-end
-function fs.write() return true end
-function fs.createDirectory() return true end
-function fs.load(path) return inner.load(path) end
-function fs.getInfo(path)
-  if path:sub(1, #sourcePrefix) == sourcePrefix then return nil end
-  return inner.getInfo(path)
-end
-function fs.getDirectoryItems(path)
-  if path == "mods" then return { "CRYSTAL_251" } end
-  return inner.getDirectoryItems(path)
-end
-
-local run = T.sdk.loadMods({ "mods/CRYSTAL_251" }, { data=Data, fs=fs })
-love.filesystem.getInfo, love.filesystem.read = oldInfo, oldRead
+local run, cache = require("mods.CRYSTAL_251.tests._real_rom_mod").load(T, raw)
+local Data = run.data
 T.eq(#run.errors, 0, "Crystal 251 loads for the full machine audit")
 
 local SCRIPT_FILES = {

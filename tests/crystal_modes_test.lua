@@ -234,6 +234,12 @@ do
   local wrapped=net.send
   eq(b:finish(),"done","wrapped finish preserves return value")
   ok(net.send~=wrapped,"finish restores the shared network sender")
+  local originalSend = net.send
+  local interrupted = {game=b.game, finish=function() end}
+  Modes.configureLinkBattle(interrupted,net,{seed=1})
+  ok(net.send~=originalSend,"next link battle installs a sender wrapper")
+  require("mods.CRYSTAL_251.lib.runtime_patches").restore()
+  eq(net.send,originalSend,"unload during a link battle restores the shared sender")
 end
 
 print(("%d/%d checks passed (Crystal battle modes and link sync)")
