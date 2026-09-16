@@ -514,7 +514,7 @@ function Extractor.extract(raw, revision, opts)
       id = speciesIds[dex], name = speciesNames[dex], dex = dex, index = dex,
       baseStats = { hp=reader:u8(offset + 1), attack=reader:u8(offset + 2),
         defense=reader:u8(offset + 3), speed=reader:u8(offset + 4),
-        special=math.max(reader:u8(offset + 5), reader:u8(offset + 6)) },
+        special=reader:u8(offset + 5) },
       crystalSpecialAttack = reader:u8(offset + 5),
       crystalSpecialDefense = reader:u8(offset + 6),
       types = { assert(Catalog.typeByByte[reader:u8(offset + 7)]) },

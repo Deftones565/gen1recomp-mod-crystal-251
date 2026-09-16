@@ -96,10 +96,10 @@ The launcher manages the required ROM before game startup.
 - Imports all 251 species, all 251 Crystal moves, base stats, types, learnsets,
   TM/HM compatibility, evolutions, palettes, front/back sprites, shiny sprites,
   normal battle animation frames for every species and Unown form, Crystal cries, and all 26 Unown forms.
-- Keeps the original Generation I Special stat for Pokemon 1–151. For Pokemon
-  152–251, the single Gen I Special is the higher of Crystal's Special Attack
-  and Special Defense for compatibility with Kanto data consumers. Battles use
-  separate Crystal Special Attack and Special Defense stats and stages.
+- Uses Crystal's separate Special Attack and Special Defense for all 251
+  Pokemon, including stat recalculation and battle stages. The legacy `special`
+  field aliases Special Attack only for Kanto serialization and compatibility;
+  it no longer preserves Gen I values or selects the higher split stat.
 - Adds Steel and Dark and applies the Generation II type chart.
 - Uses a backport of Gen1Recomp's Gen II catching module for ordinary and
   specialty balls, including its HP precision and status rules. Kanto's Bag,

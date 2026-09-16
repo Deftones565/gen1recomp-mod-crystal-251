@@ -5,6 +5,10 @@ wiring, and repairs capture and evolution behavior in the Kanto campaign.
 
 ## Changes
 
+- Use Crystal's separate Special Attack and Special Defense for all 251
+  species during stat recalculation as well as battles. Remove the original
+  Gen I Special override and the higher-of-two fallback. The legacy save field
+  now mirrors Special Attack for Kanto compatibility.
 - Restore Crystal's engine patches when the mod is disabled for the active
   game, uninstalled, or replaced by another runtime. Failed activation also
   cleans up its patches.

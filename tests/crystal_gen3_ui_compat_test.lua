@@ -114,8 +114,8 @@ end
 eq(female.gender, "female", "Party receives Gen 3 UI's lowercase female value")
 eq(male.gender, "male", "PC boxes receive Gen 3 UI's lowercase male value")
 eq(genderless.gender, nil, "genderless species clear a stale presentation value")
-ok(female.stats.specialAttack and female.stats.specialAttack ~= female.stats.special,
-  "Party receives Crystal Special Attack for modern summaries")
+ok(female.stats.specialAttack and female.stats.specialAttack == female.stats.special,
+  "Party receives Crystal Special Attack and refreshes the compatibility alias")
 ok(female.stats.specialDefense and female.stats.specialDefense ~= female.stats.special,
   "Party receives Crystal Special Defense for modern summaries")
 ok(male.stats.specialAttack and male.stats.specialDefense,

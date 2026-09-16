@@ -399,6 +399,8 @@ local function registerContent(mod, cache)
       specialAttack = row.crystalSpecialAttack or row.baseStats.special,
       specialDefense = row.crystalSpecialDefense or row.baseStats.special,
     }
+    -- Normalize old caches too: all species use Crystal's split base stats.
+    row.baseStats.special = crystalBaseStats[id].specialAttack
     row.crystalHeldItems = nil
     row.frontAnimation = nil
     if old then
@@ -410,10 +412,6 @@ local function registerContent(mod, cache)
       for _, move in ipairs(old.tmhm or {}) do
         if not known[move] then row.tmhm[#row.tmhm + 1] = move; known[move] = true end
       end
-      -- Crystal's Time Capsule deliberately restores the original Kanto base
-      -- Special. Johto has no official Gen I value and keeps the imported
-      -- stronger-special policy recorded in the cache.
-      row.baseStats.special = old.baseStats.special
       row.dexEntry, row.cry = old.dexEntry, old.cry
     elseif row.dex >= 152 then
       local dexEntry = assert(row.pokedex,

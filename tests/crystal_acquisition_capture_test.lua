@@ -1,7 +1,7 @@
 package.path='./?.lua;./?/init.lua;'..package.path
 local T=require('tests.modkit')
 local f=assert(io.open(assert(os.getenv('CRYSTAL_ROM')),'rb'));local raw=f:read('*a');f:close()
-local run=require('mods.CRYSTAL_251.tests._real_rom_mod').load(T,raw)
+local run,cache=require('mods.CRYSTAL_251.tests._real_rom_mod').load(T,raw)
 local data=run.data
 local Pokemon=require('src.pokemon.Pokemon')
 local Battle=require('src.battle.BattleState')
@@ -11,6 +11,19 @@ local Items=require('src.inventory.ItemEffects')
 local P=require('mods.CRYSTAL_251.battle.crystal_progression')
 local Native=require('src.battle.gen2.Catching')
 local Clock=require('mods.CRYSTAL_251.core.gen2.Clock')
+local Stats=require('src.pokemon.Stats')
+for _,source in ipairs(cache.species) do
+ local def=data.pokemon[source.id]
+ T.eq(def.baseStats.special,source.crystalSpecialAttack,source.id..' compatibility alias is SpAtk')
+ local m=Pokemon.new(data,source.id,50,function() return 15 end)
+ local stats=Stats.calc(def,50,m.dvs,m.statExp)
+ T.eq(stats.specialAttack,source.crystalSpecialAttack+20,source.id..' recalculated SpAtk')
+ T.eq(stats.specialDefense,source.crystalSpecialDefense+20,source.id..' recalculated SpDef')
+ T.eq(m.stats.special,stats.specialAttack,source.id..' new Pokemon alias')
+ m.stats.special=999
+ require('mods.CRYSTAL_251.battle.crystal_summary').enrich(m)
+ T.eq(m.stats.special,stats.specialAttack,source.id..' old save alias migrated')
+end
 local function game()
  local g={data=data,save=require('src.core.SaveData').newGame(),input={wasPressed=function() return true end}}
  g.save.party={Pokemon.new(data,'MEW',50,function() return 15 end)}

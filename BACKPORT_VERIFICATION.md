@@ -7,6 +7,12 @@ where its native battle, overworld and save shapes differ from Kanto.
 
 ## Resolved findings
 
+- **Split stats for every species:** the original Gen I Special override and
+  higher-of-two fallback are removed. Host stat recalculations return Crystal
+  Special Attack and Special Defense for all 251 species. Existing save records
+  refresh their legacy `special` alias to Special Attack; the alias remains for
+  Kanto serialization and completeness checks. The ROM-backed acquisition suite
+  adds 1,255 checks covering all species, recalculation and saved-stat refresh.
 - **Patch lifetime:** every permanent engine-table installer participates in a
   reversible patch journal. Disable for the active game, successful uninstall,
   failed installation and runtime replacement restore original functions and

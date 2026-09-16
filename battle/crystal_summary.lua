@@ -31,6 +31,7 @@ function Summary.enrich(mon)
   mon.stats = mon.stats or {}
   mon.stats.specialAttack = stats.specialAttack
   mon.stats.specialDefense = stats.specialDefense
+  mon.stats.special = stats.specialAttack
   return true
 end
 
@@ -52,6 +53,20 @@ end
 function Summary.installCompatibility(mod)
   if Summary._compatibilityInstalled then return false end
   Summary._compatibilityInstalled = true
+  -- Every host recalculation (Candy, evolution, Day Care, PC) must retain
+  -- Crystal's split stats, not merely add them when a summary screen opens.
+  local Stats = RuntimePatches.watch(require("src.pokemon.Stats"))
+  local originalCalc = Stats.calc
+  Stats.calc = function(def, level, dvs, statExp)
+    local base = configuredBaseStats[def.id]
+    if base then
+      local stats = CrystalDamage.calculateStats({level=level,dvs=dvs,statExp=statExp}, base)
+      -- Kanto serializers and completeness checks still require this key.
+      stats.special = stats.specialAttack
+      return stats
+    end
+    return originalCalc(def, level, dvs, statExp)
+  end
   local function refresh(payload)
     local game = payload and payload.game or (mod and mod.game)
     Summary.enrichSave((payload and payload.save) or (game and game.save))
